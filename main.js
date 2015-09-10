@@ -225,7 +225,7 @@ BONUS:
     propsToState: function(props) {
       var previewText = '';
       var errorMessage = props.errorMessage;
-      if(errorMessage) {
+      if(!errorMessage) {
         try {
           var previewTable = convertToTable(props.data, props.schema);
           previewText = JSON.stringify(previewTable, null, 2);
@@ -241,18 +241,19 @@ BONUS:
 
   var SchemaPreviewApp = React.createClass({
     getInitialState: function () {
-      var updateDataString = _.debounce(this.updateDataString, 100);
+      var updateDataString = _.debounce(this.updateDataString, SchemaPreviewApp.DEBOUNCE_TIME);
+      var updateSchema = _.debounce(this.updateSchema, SchemaPreviewApp.DEBOUNCE_TIME);
 
-      return { schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString };
+      return { schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString, updateSchema: updateSchema };
     },
     render: function () {
       return (
         DOM.div({ style: { height: '100%', width: '100%' } },
           DOM.div({ className: 'previewColumn' },
-            FieldGroup.factory({ onFieldUpdate: this.updateSchema, value: this.state.schema })
+            FieldGroup.factory({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
           ),
           DOM.div({ className: 'previewColumn' },
-            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.state.updateDataString }, this.state.dataString )
+            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.onDataStringChange }, this.state.dataString )
           ),
           DOM.div({ className: 'previewColumn' },
             TablePreview.factory(this.state)
@@ -261,12 +262,17 @@ BONUS:
       );
     },
     /////////////////////////////////////////////////
+    onSchemaChange: function(schema) {
+      this.state.updateSchema(schema);
+    },
     updateSchema: function(schema) {
       this.setState({ schema: schema });
       ns.fieldGroup = schema;
     },
-    updateDataString: function(event) {
-      var dataString = event.target.value;
+    onDataStringChange: function(event) {
+      this.state.updateDataString(event.target.value);
+    },
+    updateDataString: function(dataString) {
       var data = [];
       var errorMessage = '';
       try {
@@ -278,27 +284,7 @@ BONUS:
       this.setState({ dataString: dataString, data: data, errorMessage: errorMessage });
     }
   });
-
-  /*
-  [
-    {
-      "foo":"0",
-      "bar":"1"
-    },
-    {
-      "foo":"2",
-      "bar":"3"
-    },
-    {
-      "foo":"4",
-      "bar":"5"
-    },
-    {
-      "foo":"6",
-      "bar":"7"
-    }
-  ]
-  */
+  SchemaPreviewApp.DEBOUNCE_TIME = 100;
 
   ///////////////////////////////////////////////
   // Table helpers
@@ -426,6 +412,8 @@ BONUS:
 
       } else {
 
+        if(_(value).isObject() || _(value).isFunction()) value = null;
+
         table.push( _.object([[ field.name, value ]]) );
 
       }
@@ -526,155 +514,15 @@ BONUS:
     //TODO: Verify that no values have the same name.
   }
 
-  ///////////////////////////////////////////////
-  /// Tests
-  ///////////////////////////////////////////////
-
-  var t1 = [{ a1: 0, a2: 1, a3: 2 }];
-  var t2 = [
-    { b1: 0, b2: 1, b3: 2 },
-    { b1: 3, b2: 4, b3: 5 }
-  ];
-
-  var result = [
-    { a1: 0, a2: 1, a3: 2, b1: 0, b2: 1, b3: 2 },
-    { a1: 0, a2: 1, a3: 2, b1: 3, b2: 4, b3: 5 }
-  ];
-
-  if(_.isEqual(join(t1, t2), result)) {
-    console.log('+ join() method is working properly')
-  } else {
-    console.error('- join() method is broken :(')
-  }
-
-  var schema = [
-    { name: 'stringKey', type: 'string' },
-    { name: 'stringArrayKey', type: 'array', arrayType: 'string' },
-    {
-      name: 'objectArrayKey', type: 'array', arrayType: 'object',
-      subFields: [
-        { name: 'intKey', type: 'int' },
-        { name: 'floatKey', type: 'float' }
-      ]
-    },
-    {
-      name: 'objectKey', type: 'object',
-      subFields: [
-        {name: 'boolKey', type: 'bool'}
-      ]
-    }
-  ];
-
-  var expectedHeaders = {
-    'stringKey': 'string',
-    'stringArrayKey[]': 'string',
-    'objectArrayKey[].intKey': 'int',
-    'objectArrayKey[].floatKey': 'float',
-    'objectKey.boolKey': 'bool'
+  ns.WDCSchema= {
+    join: join,
+    convertToTableHeaders: convertToTableHeaders,
+    convertToTable: convertToTable,
+    //generateSchema: generateSchema //TODO: Uncomment after this function is operational
   };
 
-  if(_.isEqual(convertToTableHeaders(schema), expectedHeaders)) {
-    console.log('+ convertToTableHeaders() method is working properly')
-  } else {
-    console.error('- convertToTableHeaders() method is broken :(')
-  }
-
-  var json = [
-    //$mark-jeziTheCat: aassssssssssssss5444444444444sssss
-    {
-      'stringKey': '0',
-      'stringArrayKey': ['1', '2'],
-      'objectArrayKey': [
-        {
-          'intKey': 3,
-          'floatKey': 4.5
-        }
-      ],
-      objectKey: {
-        boolKey: true
-      }
-    },
-    {
-      'stringKey': '10',
-      'stringArrayKey': ['11'],
-      'objectArrayKey': [
-        {
-          'intKey': 13,
-          'floatKey': 14.15
-        },
-        {
-          'intKey': 16,
-          'floatKey': 17.18
-        }
-      ],
-      objectKey: {
-        boolKey: false
-      }
-    }
-  ];
-
-  var expectedTable = [
-    {
-      'stringKey': '0',
-      'stringArrayKey[]': '1',
-      'objectArrayKey[].intKey': 3,
-      'objectArrayKey[].floatKey': 4.5,
-      'objectKey.boolKey': true
-    },
-    {
-      'stringKey': '0',
-      'stringArrayKey[]': '2',
-      'objectArrayKey[].intKey': 3,
-      'objectArrayKey[].floatKey': 4.5,
-      'objectKey.boolKey': true
-    },
-    {
-      'stringKey': '10',
-      'stringArrayKey[]': '11',
-      'objectArrayKey[].intKey': 13,
-      'objectArrayKey[].floatKey': 14.15,
-      'objectKey.boolKey': false
-    },
-    {
-      'stringKey': '10',
-      'stringArrayKey[]': '11',
-      'objectArrayKey[].intKey': 16,
-      'objectArrayKey[].floatKey': 17.18,
-      'objectKey.boolKey': false
-    }
-  ];
-
-  var resultTable = convertToTable(json, schema);
-  if(_.isEqual(resultTable, expectedTable)) {
-    console.log('+ convertToTable() method is working properly');
-  } else {
-    console.error('- convertToTable() method is broken :(');
-    console.log(resultTable);
-    console.log(expectedTable);
-  }
-
-  // Validate data with missing keys and a schema with empty objects
-  json = [{}, {}];
-  schema = [
-    { name: 'stringKey', type: 'string' },
-    { name: 'objectKey', type: 'object', subFields: [ ] },
-    { name: 'arrayKey', type: 'array', arrayType: 'object', subFields: [ ] }
-  ];
-  expectedTable = [
-    { stringKey: null },
-    { stringKey: null }
-  ];
-
-  resultTable = convertToTable(json, schema);
-  if(_.isEqual(resultTable, expectedTable)) {
-    console.log('+ convertToTable() method is working properly for data with missing keys and a schema with empty objects');
-  } else {
-    console.error('- convertToTable() method is broken for data with missing keys and a schema with empty objects');
-    console.log(resultTable);
-    console.log(expectedTable);
-  }
-
-  ///////////////////////////////////////////////
+  ////////////////////////////////////////////////////////////
+  // TODO: Move the following to a separate file
 
   function updateGlobalFieldGroup(fieldGroup) {
     ns.fieldGroup = fieldGroup;
@@ -687,110 +535,5 @@ BONUS:
       document.getElementById('fieldGroup')
     );
   });
-
-
-  /*
-  var x = [
-    {
-      foo: "bar",
-      baz: 5,
-      qux: {
-        blah: "Sat Sep 05 2015 23:48:56 GMT-0700",
-        shannon: 'hi'
-      }
-    }
-  ]
-
-  var headers = {
-    foo: "string",
-    baz: "int",
-    "qux.blah": "datetime",
-    "qux.shannon": "string",
-  };
-
-  var data = [
-    {
-      foo: "bar",
-      baz: 5,
-      "qux.blah": "Sat Sep 05 2015 23:48:56 GMT-0700",
-      "qux.shannon": "hi",
-    }
-  ]
-  */
-
-  /*
-  function FieldElm($parent) {
-    this.$parent = $parent;
-
-    var select = $('<select class="fieldType">');
-    FIELD_TYPES.forEach(function(fieldType) {
-      select.append($('<option>').attr({ value: fieldType }).text(fieldType));
-    });
-
-    this.$elm = $('<div>').addClass('field')
-      .append($('<span>').addClass('description').text('field: '))
-      .append($('<input>').attr({ type: 'text' }).addClass('fieldName'))
-      .append(select)
-      .append($('<div>').addClass('subFields').hide())
-      .appendTo(this.$parent);
-
-    var self = this;
-    this.fieldNameElm = this.$elm.find('.fieldName');
-    this.subFieldsElm = this.$elm.find('.subFields');
-    this.selectElm = this.$elm.find('select.fieldType');
-    self.selectElm.change(function() {
-      if(self.hasChildren()) {
-        if(!self.subFieldGroup) {
-          self.subFieldGroup = new FieldGroupElm(self.subFieldsElm);
-        }
-        self.subFieldsElm.show();
-      } else {
-        self.subFieldsElm.hide();
-      }
-    });
-  }
-  FieldElm.prototype.fieldName = function() {
-    return this.fieldNameElm.val();
-  };
-  FieldElm.prototype.fieldType = function() {
-    return this.selectElm.val();
-  };
-  FieldElm.prototype.value = function() {
-    var val = { name: this.fieldName(), type: this.fieldType() };
-    if(this.hasChildren()) {
-      val.children = this.subFieldGroup.value();
-    }
-    return val;
-  };
-  FieldElm.prototype.hasChildren = function() {
-    var fieldType = this.fieldType();
-    return fieldType === 'array' || fieldType === 'object';
-  };
-
-  function FieldGroupElm($parent) {
-    this.fields = [];
-
-    this.$elm = $('<div>')
-      .append($('<div>').addClass('fieldGroup'))
-      .append($('<div>').addClass('addField').text('+ Add a new field'))
-      .appendTo($parent);
-
-    var fieldGroupElm = this.$elm.find('.fieldGroup');
-    var self = this;
-    this.$elm.find('.addField').click(function($event) {
-      self.fields.push(new FieldElm(fieldGroupElm));
-    });
-  }
-  FieldGroupElm.prototype.value = function() {
-    return this.fields.map(function(field) {
-      return field.value();
-    })
-  };
-
-  ///////////////////////////////////////////////
-  */
-
-
-
 
 })(window, jQuery, _, React);
