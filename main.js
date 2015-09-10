@@ -224,14 +224,12 @@ BONUS:
     ////////////////////////////////////////////
     propsToState: function(props) {
       var previewText = '';
-      var errorMessage = '';
-      try {
-        var previewTable = convertToTable(JSON.parse(props.dataString), props.schema);
-        previewText = JSON.stringify(previewTable, null, 2);
-      } catch(e) {
-        if(e instanceof SyntaxError) {
-          errorMessage = 'Invalid preview input data';
-        } else {
+      var errorMessage = props.errorMessage;
+      if(errorMessage) {
+        try {
+          var previewTable = convertToTable(props.data, props.schema);
+          previewText = JSON.stringify(previewTable, null, 2);
+        } catch (e) {
           console.error(e);
           errorMessage = e.message;
         }
@@ -243,7 +241,9 @@ BONUS:
 
   var SchemaPreviewApp = React.createClass({
     getInitialState: function () {
-      return { schema: [], dataString: '[]' };
+      var updateDataString = _.debounce(this.updateDataString, 100);
+
+      return { schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString };
     },
     render: function () {
       return (
@@ -252,11 +252,10 @@ BONUS:
             FieldGroup.factory({ onFieldUpdate: this.updateSchema, value: this.state.schema })
           ),
           DOM.div({ className: 'previewColumn' },
-            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.updateDataString }, this.state.dataString )
+            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.state.updateDataString }, this.state.dataString )
           ),
           DOM.div({ className: 'previewColumn' },
             TablePreview.factory(this.state)
-            //DOM.pre(null, this.state.dataString)
           )
         )
       );
@@ -267,7 +266,16 @@ BONUS:
       ns.fieldGroup = schema;
     },
     updateDataString: function(event) {
-      this.setState({ dataString: event.target.value });
+      var dataString = event.target.value;
+      var data = [];
+      var errorMessage = '';
+      try {
+        data = JSON.parse(dataString);
+      } catch(e) {
+        errorMessage = 'Invalid preview input data';
+      }
+
+      this.setState({ dataString: dataString, data: data, errorMessage: errorMessage });
     }
   });
 
@@ -432,7 +440,6 @@ BONUS:
 
   // TODO: Finish this
   var SAMPLE_SIZE = 10;
-  var DEFAULT_TYPE = FIELD_TYPE.object;
   function generateSchema(data, sampleSize) {
     sampleSize = sampleSize || SAMPLE_SIZE;
 
