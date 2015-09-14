@@ -6,23 +6,13 @@ X create method that takes schema and generates the header
 - hook up to an API
 
 BONUS:
-- pass in a JSON to generate the initial schema
+X pass in a JSON to generate the initial schema
 - create a way to join multiple requests to create the table
  */
 
 (function(ns, $, _, React) {
 
-  var FIELD_TYPE = {
-    string: 'string',
-    bool: 'bool',
-    int: 'int',
-    float: 'float',
-    date: 'date',
-    datetime: 'datetime',
-    array: 'array',
-    object: 'object'
-  };
-
+  var FIELD_TYPE = WDCSchema.FIELD_TYPE;
   var DOM = React.DOM;
 
   var FieldTypeSelect = React.createClass({
@@ -216,6 +206,41 @@ BONUS:
 
   ////////////////////////////////////////////////////////////////
 
+  var HeaderPreview = React.createClass({
+    getInitialState: function () {
+      return { previewText: '', errorMessage: '' };
+    },
+    componentDidMount: function() {
+      this.setState(this.propsToState(this.props));
+    },
+    render: function () {
+      return (
+        this.state.errorMessage
+          ? DOM.div({ className: 'previewError' }, this.state.errorMessage)
+          : DOM.pre({ className: 'previewDisplay'}, this.state.previewText)
+      );
+    },
+    componentWillReceiveProps: function(nextProps) {
+      this.setState(this.propsToState(nextProps));
+    },
+    ////////////////////////////////////////////
+    propsToState: function(props) {
+      var previewText = '';
+      var errorMessage = props.errorMessage;
+      if(!errorMessage) {
+        try {
+          var previewTable = WDCSchema.convertToTableHeaders(props.schema);
+          previewText = JSON.stringify(previewTable, null, 2);
+        } catch (e) {
+          console.error(e);
+          errorMessage = e.message;
+        }
+      }
+      return { previewText: previewText, errorMessage: errorMessage };
+    }
+  });
+  HeaderPreview.factory = React.createFactory(HeaderPreview);
+
   var TablePreview = React.createClass({
     getInitialState: function () {
       return { previewText: '', errorMessage: '' };
@@ -239,7 +264,7 @@ BONUS:
       var errorMessage = props.errorMessage;
       if(!errorMessage) {
         try {
-          var previewTable = convertToTable(props.data, props.schema);
+          var previewTable = WDCSchema.convertToTable(props.data, props.schema);
           previewText = JSON.stringify(previewTable, null, 2);
         } catch (e) {
           console.error(e);
@@ -265,10 +290,11 @@ BONUS:
             FieldGroup.factory({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
           ),
           DOM.div({ className: 'previewColumn' },
-            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.onDataStringChange }, this.state.dataString ),
+            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.onDataStringChange, value: this.state.dataString }),
             DOM.button({ onClick: this.generateSchema }, 'Generate the Schema')
           ),
           DOM.div({ className: 'previewColumn' },
+            HeaderPreview.factory(this.state),
             TablePreview.factory(this.state)
           )
         )
@@ -283,7 +309,7 @@ BONUS:
       ns.fieldGroup = schema;
     },
     generateSchema: function() {
-      var schema = ns.WDCSchema.generateSchema(this.state.data);
+      var schema = ns.WDCSchema.generateSchema(this.state.data, 50);
       this.setState({ schema: schema });
     },
     onDataStringChange: function(event) {
@@ -303,263 +329,16 @@ BONUS:
   });
   SchemaPreviewApp.DEBOUNCE_TIME = 100;
 
-  ///////////////////////////////////////////////
-  // Table helpers
-  ///////////////////////////////////////////////
-
-  function join() {
-    var tables = _.toArray(arguments);
-    var joinedTable = [{}]; // Empty table
-
-    tables.forEach(function(table) {
-      var newJoinedTable = [];
-      [].concat(joinedTable).forEach(function(row1) {
-        [].concat(table).forEach(function(row2) {
-          newJoinedTable.push(_.extend({}, row1, row2));
-        });
-      });
-      joinedTable = newJoinedTable;
-    });
-
-    return joinedTable;
-  }
-  join.multiple = function() { return join.apply(null, _.flatten(arguments, 1)); };
-
-  function convertToTableHeaders(schema) {
-    function joinHeaderKey(prefix, key) { return ((prefix ? (prefix + '.') : '') + key); }
-    function arrayHeader(prefix) { return (prefix + '[]'); }
-
-    // Internal recursive function
-    function _convertToTableHeaders(prefix, schema) {
-      var headers = {};
-
-      schema.forEach(function(field) {
-        var type = field.type;
-        var name = field.name;
-
-        if(type === FIELD_TYPE.array) {
-          type = field.arrayType;
-          name = arrayHeader(name);
-        }
-
-        if(type === FIELD_TYPE.object) {
-          var subFieldHeaders = _convertToTableHeaders(name, field.subFields);
-          _.forEach(subFieldHeaders, function(type, key) {
-            headers[joinHeaderKey(prefix, key)] = type;
-          });
-        } else {
-          headers[joinHeaderKey(prefix, name)] = type;
-        }
-      });
-
-      return headers;
-    }
-
-    return _convertToTableHeaders('', schema);
-  }
-
-  ns.getHeaders = function() {
-    return convertToTableHeaders(ns.fieldGroup);
-  };
-
-  function buildObjectKey(fieldName, childKey) { return (fieldName + '.' + childKey); }
-  function buildArrayKey(key) { return (key + '[]'); }
-
-
-  function convertToTable(data, schema) {
-
-    function parseObjectForTable(obj, fieldList) {
-      if(fieldList.length === 0) return [{}]; // Return an empty table if no field list is given
-
-      var tables = fieldList.map(function(field) {
-        return parseField(obj, field);
-      });
-      return join.multiple(tables);
-    }
-
-    function addObjectFieldNameToRow(fieldName, row) {
-      var newRow = {};
-      _(row).forEach(function(val, key) {
-        newRow[buildObjectKey(fieldName, key)] = val;
-      });
-      return newRow;
-    }
-
-    function parseObjectForTableFromField(fieldName, obj, fieldList) {
-      var objTable = parseObjectForTable(obj, fieldList);
-
-      return objTable.map(function(row) {
-        return addObjectFieldNameToRow(fieldName, row);
-      });
-    }
-
-    function parseField(rowInput, field) {
-      var table = [];
-      var value = (_(rowInput).isNull() || _(rowInput).isUndefined()) ? null : rowInput[field.name];
-      if(_(value).isUndefined()) value = null;
-
-      if(field.type === FIELD_TYPE.object) {
-
-        table = parseObjectForTableFromField(field.name, value, field.subFields);
-
-      } else if(field.type === FIELD_TYPE.array) {
-
-        var columnKey = buildArrayKey(field.name);
-        var fieldValuesList = (_(value).isArray() && value.length > 0) ? value : [ null ];
-        // TODO: Should fieldValuesList be flattened? I doubt it.
-
-        if(field.arrayType === FIELD_TYPE.object) {
-
-          table = _.flatten(fieldValuesList.map(function(fieldObj) {
-            return parseObjectForTableFromField(columnKey, fieldObj, field.subFields);
-          }));
-
-        } else {
-
-          table = fieldValuesList.map(function(fieldValue) {
-            return _.object([[ columnKey, fieldValue ]]);
-          });
-
-        }
-
-      } else {
-
-        if(_(value).isObject() || _(value).isFunction()) value = null;
-
-        table.push( _.object([[ field.name, value ]]) );
-
-      }
-
-      return table;
-    }
-
-    return _.flatten([].concat(data).map(function(rowInput) {
-      return parseObjectForTable(rowInput, schema);
-    }));
-  }
-
-  // TODO: Finish this
-  var SAMPLE_SIZE = 10;
-  function generateSchema(data, sampleSize) {
-    sampleSize = sampleSize || SAMPLE_SIZE;
-
-    function estimateType(val) {
-      switch(typeof val) {
-        case 'string':
-          if(_(Date.parse(val)).isNaN()) return FIELD_TYPE.string;
-          return (val.indexOf(':') >= 0) ? FIELD_TYPE.datetime : FIELD_TYPE.date;
-        case 'object':
-          return _(val).isArray() ? FIELD_TYPE.array : FIELD_TYPE.object;
-        case 'boolean':
-          return FIELD_TYPE.bool;
-        case 'number':
-          return (val.toString().indexOf('.') >= 0) ? FIELD_TYPE.float : FIELD_TYPE.int;
-      }
-    }
-
-    function bestTypeEstimate(types) {
-      var uniqTypes = _.uniq(types);
-      switch(uniqTypes.length) {
-        case 0: return; // If there no types then leave it empty for the user to fill in
-        case 1:
-          var type = uniqTypes[0]; // all types are the same so return the first one
-          return type;
-        default:
-          // check if floats and ints are getting confused then choose floats
-          if(_.difference(uniqTypes, [FIELD_TYPE.int, FIELD_TYPE.float]).length === 0) {
-            return FIELD_TYPE.float;
-          }
-
-          // check if date, datetime, and strings are getting confused, string > datetime > date
-          var typeDiff = _.difference(uniqTypes, [FIELD_TYPE.date, FIELD_TYPE.datetime]);
-          if(typeDiff.length === 0) return FIELD_TYPE.datetime; //If we can't tell, generalize to datetime
-          if(typeDiff.length === 1 && typeDiff[0] === FIELD_TYPE.string) {
-            return FIELD_TYPE.string; //If we can't tell, generalize to string
-          }
-          break;
-      }
-    }
-
-    function buildField(val, key) {
-      var type = estimateType(val);
-      if(!type) return null; // if a type couldn't be determined, don't create a field, let the user add it
-
-      var field = { name: key, type: type };
-
-      if(type === FIELD_TYPE.array) {
-        var sampleArray = _.sample(val, sampleSize);
-        var types = sampleArray.map(estimateType);
-        field.arrayType = bestTypeEstimate(types);
-
-        if(!field.arrayType) return null;
-
-        if(field.arrayType === FIELD_TYPE.object) {
-          field.subFields = generateSchema(sampleArray, sampleSize);
-        }
-      } else if(type === FIELD_TYPE.object) {
-        field.subFields = _.map(val, buildField);
-      }
-
-      return field;
-    }
-
-    function bestSchemaEstimate(schemas) {
-      var fieldMap = _.groupBy(_.flatten(schemas), function(field) { return field.name; });
-      return _.compact(_(fieldMap).map(function(fields, name) {
-        var estimatedType = bestTypeEstimate(fields.map(function(field) { return field.type; }));
-        var isArrayType = (estimatedType === FIELD_TYPE.array);
-
-        var field = { name: name };
-
-        if(isArrayType) {
-          estimatedType = bestTypeEstimate(fields.map(function(field) { return field.arrayType; }));
-
-          field.type = FIELD_TYPE.array;
-          field.arrayType = estimatedType;
-        } else {
-          field.type = estimatedType;
-        }
-
-        if(!estimatedType) return null; // If there is no estimated type then we can't create a field
-
-        if(estimatedType === FIELD_TYPE.object) {
-          // TODO: Validate subField schemas against each other...
-
-          field.subFields = bestSchemaEstimate(fields.map(function(field) { return field.subFields }));
-          if(field.subFields.length === 0) return null;
-        }
-
-        return field;
-      }));
-    }
-
-    var fieldSchemas = _.sample([].concat(data), sampleSize).map(function(obj){
-      return _.compact(_.map(obj, buildField));
-    });
-
-    return bestSchemaEstimate(fieldSchemas);
-  }
-
-
-
-  function validateSchema(schema) {
-    //TODO: Verify that all fields have a non-empty name? OR create a field with an empty name when creating a field
-    //TODO: Verify that no values have the same name.
-  }
-
-  ns.WDCSchema= {
-    join: join,
-    convertToTableHeaders: convertToTableHeaders,
-    convertToTable: convertToTable,
-    generateSchema: generateSchema
-  };
-
   ////////////////////////////////////////////////////////////
   // TODO: Move the following to a separate file
 
   function updateGlobalFieldGroup(fieldGroup) {
     ns.fieldGroup = fieldGroup;
   }
+
+  ns.getHeaders = function() {
+    return WDCSchema.convertToTableHeaders(ns.fieldGroup);
+  };
 
   $(function() {
     //ns.fieldGroup = new FieldGroupElm($('body'));

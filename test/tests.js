@@ -207,6 +207,31 @@
 
       expect(resultTable).to.deep.equal(expectedTable);
     });
+
+    // Needed because underscore will treat objects with a "length" field as "array-like"
+    it('should work for objects with a "length" key', function() {
+      var json = [
+        { objectKey: { stringKey: 'a', length: 1 } },
+        { objectKey: { } }
+      ];
+      var schema = [
+        { name: 'objectKey', type: 'object',
+          subFields: [
+            { name: 'stringKey', type: 'string' },
+            { name: 'length', type: 'int' }
+          ]
+        }
+      ];
+
+      var expectedTable = [
+        { 'objectKey.stringKey': 'a',  'objectKey.length': 1 },
+        { 'objectKey.stringKey': null, 'objectKey.length': null }
+      ];
+
+      var resultTable = WDCSchema.convertToTable(json, schema);
+
+      expect(resultTable).to.deep.equal(expectedTable);
+    });
   });
 
   describe('generateSchema()', function() {
@@ -272,6 +297,26 @@
           subFields: [
             { name: 'stringKey', type: 'string' },
             { name: 'intKey', type: 'int' }
+          ]
+        }
+      ]);
+    });
+
+    // Needed because underscore will treat objects with a "length" field as "array-like"
+    it('should work for objects with a "length" key', function() {
+      var json = [
+        { objectKey: { stringKey: 'a', length: 1 } },
+        { objectKey: { stringKey: 'b', length: 2 } },
+        { }
+      ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([
+        { name: 'objectKey', type: 'object',
+          subFields: [
+            { name: 'stringKey', type: 'string' },
+            { name: 'length', type: 'int' }
           ]
         }
       ]);
