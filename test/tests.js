@@ -3,8 +3,17 @@
   var expect = chai.expect;
 
   describe('join()', function() {
-    it('should hanle 1 table', function() {
-      // TODO
+    it('should handle 1 table', function() {
+      var t1 = [
+        { a1: 0, a2: 1, a3: 2 }
+      ];
+      var expectedResult = [
+        { a1: 0, a2: 1, a3: 2 }
+      ];
+
+      var result = WDCSchema.join(t1);
+
+      expect(result).to.deep.equal(expectedResult);
     });
 
     it('should combine 2 tables', function() {
@@ -25,8 +34,31 @@
       expect(result).to.deep.equal(expectedResult);
     });
 
-    it('should combine 2+ tables', function() {
-      // TODO
+    describe('combining 2+ tables', function() {
+      var t1 = [
+        { a1: 0 }
+      ];
+      var t2 = [
+        { a2: 1 }
+      ];
+      var t3 = [
+        { a3: 2 }
+      ];
+      var expectedResult = [
+        { a1: 0, a2: 1, a3: 2 }
+      ];
+
+      it('should work with multiple arguments', function() {
+        var result = WDCSchema.join(t1, t2, t3);
+
+        expect(result).to.deep.equal(expectedResult);
+      });
+
+      it('should work for join.multiple() for passing an array of tables', function() {
+        var result = WDCSchema.join.multiple([t1, t2, t3]);
+
+        expect(result).to.deep.equal(expectedResult);
+      });
     });
   });
 
@@ -174,6 +206,117 @@
       var resultTable = WDCSchema.convertToTable(json, schema);
 
       expect(resultTable).to.deep.equal(expectedTable);
+    });
+  });
+
+  describe('generateSchema()', function() {
+    it('should estimate for string type', function () {
+      var json = [ { stringKey: 'a' }, { stringKey: 'b' }, { stringKey: 'c' }, { } ];
+      
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ { name: 'stringKey', type: 'string' } ]);
+    });
+
+    it('should estimate for bool type', function () {
+      var json = [ { boolKey: true }, { boolKey: false }, { boolKey: true }, { } ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ { name: 'boolKey', type: 'bool' } ]);
+    });
+    
+    it('should estimate for int type', function () {
+      var json = [ { intKey: 1 }, { intKey: 2 }, { intKey: 3 }, { } ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ { name: 'intKey', type: 'int' } ]);
+    });
+
+    it('should estimate for float type', function () {
+      var json = [ { floatKey: 1.1 }, { floatKey: 2.2 }, { floatKey: 3.3 }, { } ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ { name: 'floatKey', type: 'float' } ]);
+    });
+
+    it('should estimate for date type', function () {
+      var json = [ { dateKey: '2015-06-21' }, { dateKey: 'June 6 2015' }, { } ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ { name: 'dateKey', type: 'date' } ]);
+    });
+
+    it('should estimate for datetime type', function () {
+      var json = [ { datetimeKey: '2015-06-21T02:52:30+0000' }, { datetimeKey: 'Fri Jun 12 2015 12:34:00 GMT-0700' }, { } ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ { name: 'datetimeKey', type: 'datetime' } ]);
+    });
+
+    it('should estimate for object type', function () {
+      var json = [
+        { objectKey: { stringKey: 'a', intKey: 1 } },
+        { objectKey: { stringKey: 'b', intKey: 2 } },
+        { }
+      ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([
+        { name: 'objectKey', type: 'object',
+          subFields: [
+            { name: 'stringKey', type: 'string' },
+            { name: 'intKey', type: 'int' }
+          ]
+        }
+      ]);
+    });
+
+    it('should estimate for array type', function () {
+      var json = [
+        { arrayKey: [ 'a', 'b' ] },
+        { arrayKey: [ 'c' ] },
+        { arrayKey: [] },
+        { }
+      ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ { name: 'arrayKey', type: 'array', arrayType: 'string' } ]);
+    });
+
+    it('should estimate for array type with objects', function () {
+      var json = [
+        { arrayKey: [ { stringKey: 'a', intKey: 1 }, { stringKey: 'b', intKey: 2 } ] },
+        { arrayKey: [ { stringKey: 'c', intKey: 3 } ] },
+        { arrayKey: [] },
+        { }
+      ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([
+        { name: 'arrayKey', type: 'array', arrayType: 'object',
+          subFields: [
+            { name: 'stringKey', type: 'string' },
+            { name: 'intKey', type: 'int' }
+          ]
+        }
+      ]);
+    });
+    
+    describe('mixed estimates', function() {
+      /*
+      TODO:
+      - int/float
+      - date/datetime/string
+      - incompatible mixed types
+       */
     });
   });
 

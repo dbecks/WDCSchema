@@ -52,21 +52,24 @@ BONUS:
 
   var Field = React.createClass({
     getInitialState: function() {
-      var field = {
-        key: this.props.field.key,
-        name: this.props.field.name,
-        type: this.props.field.type,
-        arrayType: this.props.field.arrayType
-      };
-      if(Field.hasSubFields(field)) {
-        field.subFields = this.props.subFields || [];
-      }
+      var field = this.props.field
+                ? _.clone(this.props.field)
+                : { name: '', type: Field.DEFAULT_TYPE };
       return { field : field };
+    },
+    componentWillReceiveProps: function(nextProps) {
+      if(nextProps.field) {
+        this.setState({ field: _.clone(nextProps.field) });
+      }
     },
     render: function() {
       var fieldGroup = null;
       if(this.hasSubFields()) {
-        fieldGroup = FieldGroup.factory({ className: 'subFields', onFieldUpdate: this.onSubFieldGroupUpdate });
+        fieldGroup = FieldGroup.factory({
+          value: this.state.field.subFields,
+          className: 'subFields',
+          onFieldUpdate: this.onSubFieldGroupUpdate
+        });
       }
 
       var arrayType = null;
@@ -151,10 +154,15 @@ BONUS:
 
   ////////////////////////////////////////////////////////////////
 
-  var fieldGroupFieldKey = 0; // static variable used to create a unique key for each field created
+  var fieldGroupFieldKey = 1; // static variable used to create a unique key for each field created
   var FieldGroup = React.createClass({
     getInitialState: function() {
-      return {fields: []};
+      return { fields: this.getFieldsFromProps(this.props) };
+    },
+    componentWillReceiveProps: function(nextProps) {
+      if(_(nextProps.value).isArray()) { // Don't remove previous props
+        this.setState({ fields: this.getFieldsFromProps(nextProps) });
+      }
     },
     render: function() {
       var _this = this;
@@ -181,7 +189,7 @@ BONUS:
     removeField: function(field) {
       var _this = this;
       return function() {
-        var fields = $.extend([], _this.state.fields);
+        var fields = _.clone(_this.state.fields);
         fields.splice(fields.indexOf(field), 1); // Remove the field
 
         _this.setFields(fields);
@@ -190,14 +198,18 @@ BONUS:
     onFieldUpdateFactory: function(field) {
       var _this = this;
       return function(fieldUpdate) {
-        field.key = fieldUpdate.key;
-        field.name = fieldUpdate.name;
-        field.type = fieldUpdate.type;
-        if(fieldUpdate.arrayType) field.arrayType = fieldUpdate.arrayType;
-        if(fieldUpdate.subFields) field.subFields = fieldUpdate.subFields;
-
+        _.extend(field, fieldUpdate);
         _this.setFields(_this.state.fields);
       };
+    },
+    getFieldsFromProps: function(props) {
+      if(!_(props.value).isArray()) return [];
+
+      var fields = props.value.map(_.clone);
+      fields.forEach(function(field) {
+        if(!field.key) field.key = fieldGroupFieldKey++;
+      });
+      return fields;
     }
   });
   FieldGroup.factory = React.createFactory(FieldGroup);
@@ -253,7 +265,8 @@ BONUS:
             FieldGroup.factory({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
           ),
           DOM.div({ className: 'previewColumn' },
-            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.onDataStringChange }, this.state.dataString )
+            DOM.textarea({ style: { height: '300px', width: '98%' }, onChange: this.onDataStringChange }, this.state.dataString ),
+            DOM.button({ onClick: this.generateSchema }, 'Generate the Schema')
           ),
           DOM.div({ className: 'previewColumn' },
             TablePreview.factory(this.state)
@@ -268,6 +281,10 @@ BONUS:
     updateSchema: function(schema) {
       this.setState({ schema: schema });
       ns.fieldGroup = schema;
+    },
+    generateSchema: function() {
+      var schema = ns.WDCSchema.generateSchema(this.state.data);
+      this.setState({ schema: schema });
     },
     onDataStringChange: function(event) {
       this.state.updateDataString(event.target.value);
@@ -292,12 +309,7 @@ BONUS:
 
   function join() {
     var tables = _.toArray(arguments);
-    var joinedTable = [];
-
-    // Get the first set of rows to have rows to join against
-    while(joinedTable.length === 0 && tables.length > 0) {
-      joinedTable = joinedTable.concat(tables.shift());
-    }
+    var joinedTable = [{}]; // Empty table
 
     tables.forEach(function(table) {
       var newJoinedTable = [];
@@ -311,7 +323,7 @@ BONUS:
 
     return joinedTable;
   }
-  join.multiple = function(tables) { return join.apply(null, tables); };
+  join.multiple = function() { return join.apply(null, _.flatten(arguments, 1)); };
 
   function convertToTableHeaders(schema) {
     function joinHeaderKey(prefix, key) { return ((prefix ? (prefix + '.') : '') + key); }
@@ -451,7 +463,6 @@ BONUS:
         case 0: return; // If there no types then leave it empty for the user to fill in
         case 1:
           var type = uniqTypes[0]; // all types are the same so return the first one
-          if(type === FIELD_TYPE.array) return; // don't allow array types
           return type;
         default:
           // check if floats and ints are getting confused then choose floats
@@ -492,19 +503,41 @@ BONUS:
       return field;
     }
 
-    var schemas = _.sample([].concat(data), sampleSize).map(function(obj){
+    function bestSchemaEstimate(schemas) {
+      var fieldMap = _.groupBy(_.flatten(schemas), function(field) { return field.name; });
+      return _.compact(_(fieldMap).map(function(fields, name) {
+        var estimatedType = bestTypeEstimate(fields.map(function(field) { return field.type; }));
+        var isArrayType = (estimatedType === FIELD_TYPE.array);
+
+        var field = { name: name };
+
+        if(isArrayType) {
+          estimatedType = bestTypeEstimate(fields.map(function(field) { return field.arrayType; }));
+
+          field.type = FIELD_TYPE.array;
+          field.arrayType = estimatedType;
+        } else {
+          field.type = estimatedType;
+        }
+
+        if(!estimatedType) return null; // If there is no estimated type then we can't create a field
+
+        if(estimatedType === FIELD_TYPE.object) {
+          // TODO: Validate subField schemas against each other...
+
+          field.subFields = bestSchemaEstimate(fields.map(function(field) { return field.subFields }));
+          if(field.subFields.length === 0) return null;
+        }
+
+        return field;
+      }));
+    }
+
+    var fieldSchemas = _.sample([].concat(data), sampleSize).map(function(obj){
       return _.compact(_.map(obj, buildField));
     });
 
-    var estimatedSchema;
-
-    var fieldMap = _.groupBy(_.flatten(schemas), 'name');
-    _.compact(_.map(fieldMap), function(fields, name) {
-      var estimatedType = bestTypeEstimate(_.pluck(fields, 'type'));
-    });
-
-
-    return estimatedSchema;
+    return bestSchemaEstimate(fieldSchemas);
   }
 
 
@@ -518,7 +551,7 @@ BONUS:
     join: join,
     convertToTableHeaders: convertToTableHeaders,
     convertToTable: convertToTable,
-    //generateSchema: generateSchema //TODO: Uncomment after this function is operational
+    generateSchema: generateSchema
   };
 
   ////////////////////////////////////////////////////////////
