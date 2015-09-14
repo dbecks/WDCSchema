@@ -14,6 +14,7 @@
   // helper functions
   function buildObjectKey(fieldName, childKey) { return (fieldName + '.' + childKey); }
   function buildArrayKey(key) { return (key + '[]'); }
+  function newEmptyTable() { return [{}]; }
 
   // Helper function needed because underscore's map and forEach methods use duck-typing
   // to treat objects with a "length" property like an array
@@ -21,7 +22,7 @@
 
   function join() {
     var tables = _.toArray(arguments);
-    var joinedTable = [{}]; // Empty table
+    var joinedTable = newEmptyTable();
 
     tables.forEach(function(table) {
       var newJoinedTable = [];
@@ -74,7 +75,7 @@
   function convertToTable(data, schema) {
 
     function parseObjectForTable(obj, fieldList) {
-      if(fieldList.length === 0) return [{}]; // Return an empty table if no field list is given
+      if(fieldList.length === 0) return newEmptyTable(); // Return an empty table if no field list is given
 
       var tables = fieldList.map(function(field) {
         return parseField(obj, field);

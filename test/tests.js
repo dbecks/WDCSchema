@@ -322,6 +322,8 @@
       ]);
     });
 
+
+
     it('should estimate for array type', function () {
       var json = [
         { arrayKey: [ 'a', 'b' ] },
@@ -353,6 +355,51 @@
           ]
         }
       ]);
+    });
+
+    describe('Edge Cases', function() {
+      it('should not show nested object if a non javascript object schema type is given for JSON that has a javascript object', function() {
+        var json = [
+          { strKey: { doNotShow: 'this' } },
+          { strKey: { doNotShow: 'this either' } }
+        ];
+        var schema = [ { name: 'strKey', type: 'string' } ];
+        var expectedTable = [
+          { 'strKey': null },
+          { 'strKey': null }
+        ];
+
+        var resultTable = WDCSchema.convertToTable(json, schema);
+
+        expect(resultTable).to.deep.equal(expectedTable);
+      });
+
+      it('should be able to show the length property on arrays', function() {
+        var json = [
+          { arrayKey: [] },
+          { arrayKey: [ 1, 2 ] }
+        ];
+        var schema = [
+          {
+            name: 'arrayKey', type: 'object',
+            subFields: [
+              {name: 'length', type: 'int'}
+            ]
+          }
+        ];
+        var expectedTable = [
+          { 'arrayKey.length': 0 },
+          { 'arrayKey.length': 2 }
+        ];
+
+        var resultTable = WDCSchema.convertToTable(json, schema);
+
+        expect(resultTable).to.deep.equal(expectedTable);
+      });
+
+      it('should handle key names with periods and square brackets', function() {
+
+      });
     });
     
     describe('mixed estimates', function() {

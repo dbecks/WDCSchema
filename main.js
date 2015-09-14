@@ -80,10 +80,9 @@ X pass in a JSON to generate the initial schema
 
       return (
         DOM.div({ className: 'field' },
-          //DOM.span({ className: 'description' }, 'field:'),
           DOM.input({ type: 'text', className: 'fieldName', value: this.state.field.name, onChange: this.onFieldNameChange }),
           FieldTypeSelect.factory({ className: 'fieldType', value: this.state.field.type, onChange: this.onFieldTypeChange }),
-          DOM.span({ className: 'fieldDelete', onClick: this.props.onFieldDelete }, 'Delete'),
+          DOM.button({ className: 'fieldDelete', onClick: this.props.onFieldDelete }, 'Delete'),
           arrayType,
           fieldGroup
         )
@@ -243,10 +242,12 @@ X pass in a JSON to generate the initial schema
 
   var TablePreview = React.createClass({
     getInitialState: function () {
-      return { previewText: '', errorMessage: '' };
+      return { previewTable: [], previewText: '', errorMessage: '' };
     },
     componentDidMount: function() {
-      this.setState(this.propsToState(this.props));
+      var state = this.propsToState(this.props);
+      this.setState(state);
+      if(this.props.onTableChange) this.props.onTableChange(state.previewTable);
     },
     render: function () {
       return (
@@ -261,27 +262,31 @@ X pass in a JSON to generate the initial schema
     ////////////////////////////////////////////
     propsToState: function(props) {
       var previewText = '';
+      var previewTable = [];
       var errorMessage = props.errorMessage;
       if(!errorMessage) {
         try {
-          var previewTable = WDCSchema.convertToTable(props.data, props.schema);
+          previewTable = WDCSchema.convertToTable(props.data, props.schema);
           previewText = JSON.stringify(previewTable, null, 2);
         } catch (e) {
           console.error(e);
           errorMessage = e.message;
         }
       }
-      return { previewText: previewText, errorMessage: errorMessage };
+      return { previewTable: previewTable, previewText: previewText, errorMessage: errorMessage };
     }
   });
   TablePreview.factory = React.createFactory(TablePreview);
 
   var SchemaPreviewApp = React.createClass({
     getInitialState: function () {
-      var updateDataString = _.debounce(this.updateDataString, SchemaPreviewApp.DEBOUNCE_TIME);
+      var updateDataString = this.updateDataString; //_.debounce(this.updateDataString, SchemaPreviewApp.DEBOUNCE_TIME);
       var updateSchema = _.debounce(this.updateSchema, SchemaPreviewApp.DEBOUNCE_TIME);
 
-      return { schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString, updateSchema: updateSchema };
+      return {
+        schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString,
+        updateSchema: updateSchema, onTableChange: this.onTableChange
+      };
     },
     render: function () {
       return (
@@ -305,8 +310,9 @@ X pass in a JSON to generate the initial schema
       this.state.updateSchema(schema);
     },
     updateSchema: function(schema) {
-      this.setState({ schema: schema });
-      ns.fieldGroup = schema;
+      this.setState({ schema: schema }, function() {
+        if(this.props.onSchemaChange) this.props.onSchemaChange(schema);
+      });
     },
     generateSchema: function() {
       var schema = ns.WDCSchema.generateSchema(this.state.data, 50);
@@ -325,6 +331,9 @@ X pass in a JSON to generate the initial schema
       }
 
       this.setState({ dataString: dataString, data: data, errorMessage: errorMessage });
+    },
+    onTableChange: function(data) {
+      if(this.props.onTableChange) this.props.onTableChange(data);
     }
   });
   SchemaPreviewApp.DEBOUNCE_TIME = 100;
@@ -336,6 +345,10 @@ X pass in a JSON to generate the initial schema
     ns.fieldGroup = fieldGroup;
   }
 
+  function updateGlobalDataTable(table) {
+    ns.dataTable = table;
+  }
+
   ns.getHeaders = function() {
     return WDCSchema.convertToTableHeaders(ns.fieldGroup);
   };
@@ -343,7 +356,7 @@ X pass in a JSON to generate the initial schema
   $(function() {
     //ns.fieldGroup = new FieldGroupElm($('body'));
     React.render(
-      React.createElement(SchemaPreviewApp),
+      React.createElement(SchemaPreviewApp, { onSchemaChange: updateGlobalFieldGroup, onTableChange: updateGlobalDataTable }),
       document.getElementById('fieldGroup')
     );
   });
