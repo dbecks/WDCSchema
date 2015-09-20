@@ -1,4 +1,4 @@
-(function(ns, _) {
+(function(window, _) {
 
   var FIELD_TYPE = {
     string: 'string',
@@ -251,7 +251,37 @@
     //TODO: Verify that no values have the same name.
   }
 
-  ns.WDCSchema= {
+  function doItAll(schema, pageFetcher) {
+    var connector = tableau.makeConnector();
+
+    connector.getColumnHeaders = function() {
+      var headers = convertToTableHeaders(schema);
+      var fieldNames = _.keys(headers);
+      var fieldTypes = _.values(headers);
+      tableau.headersCallback(fieldNames, fieldTypes);
+    };
+
+    connector.getTableData = function(lastRecordToken) {
+      pageFetcher(
+        lastRecordToken,
+        function(data, lastRecordToken, moreData) {
+          try {
+            var rows = convertToTable(data, schema);
+            tableau.dataCallback(data, lastRecordToken, moreData);
+          } catch(e) {
+            tableau.abortWithError(e.message);
+          }
+        },
+        tableau.abortWithError
+      );
+    };
+
+    tableau.registerConnector(connector);
+
+    return connector;
+  }
+
+  window.WDCSchema= {
     join: join,
     convertToTableHeaders: convertToTableHeaders,
     convertToTable: convertToTable,

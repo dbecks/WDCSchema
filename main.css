@@ -1,48 +1,21 @@
-html, body {
+html, body, #fieldGroup {
   height: 100%;
 }
 
-.field {
-  margin: 0 4px 4px;
-  border: solid black 1px;
-  padding: 4px;
-}
-
-.description {
-  margin-right: 0;
-}
-
-.fieldName {
+select {
   margin: 0 4px;
 }
 
+.panel {
+  margin-bottom: 0;
+}
+
+.fieldArrayType,
 .subFields {
-  border: solid black 1px;
-  margin: 4px 4px 4px 16px;
-  padding: 4px;
+  padding: 10px 4px 0;
 }
 
-.addField {
-  margin: 4px;
-  cursor: pointer;
-}
-
-.fieldDelete {
-  margin-left: 4px;
-}
-
-.fieldArrayType {
-  margin: 4px;
-}
-
-.previewColumn {
-  width: 33%;
-  display: inline-block;
-  vertical-align: top;
-}
-
-.previewDisplay {
-  padding: 4px;
-  margin: 0;
-  border: solid black 1px;
+.full-height {
+  position: relative;
+  height: 100%;
 }
