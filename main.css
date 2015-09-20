@@ -19,3 +19,10 @@ select {
   position: relative;
   height: 100%;
 }
+
+.fill-height {
+  padding: 0 10px;
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+}
