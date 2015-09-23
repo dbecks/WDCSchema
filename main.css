@@ -2,7 +2,7 @@ html, body, #fieldGroup {
   height: 100%;
 }
 
-select {
+select.fieldType {
   margin: 0 4px;
 }
 

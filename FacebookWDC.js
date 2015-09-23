@@ -67,12 +67,12 @@
     NOT_AUTHORIZED: 'not_authorized'
   };
 
-  function authenticate() {
+  function authenticate(clientId, scope) {
     var oauthParams = {
       response_type : 'token',
-      client_id     : DEFAULT_CLIENT_ID,
+      client_id     : clientId || DEFAULT_CLIENT_ID,
       redirect_uri  : window.location.href, // Navigate back here
-      scope         : DEFAULT_REQUESTED_SCOPE
+      scope         : scope || DEFAULT_REQUESTED_SCOPE
     };
 
     var fbAuthURL = FACEBOOK_OAUTH + '?' + $.param(oauthParams);
@@ -419,8 +419,8 @@
             ),
             Col.element({ md: 6 },
               DOM.div({ className: 'form-inline' },
-                ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema' }),
-                ButtonInput.element({ onClick: this.submit, value: 'Submit Data' })
+                ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema', disabled: !this.canGenerateSchema() }),
+                ButtonInput.element({ onClick: this.submit, value: 'Submit Data', disabled: !this.canSubmit() })
               ),
               FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
             )
@@ -461,15 +461,23 @@
         }
       });
     },
+    canGenerateSchema: function() {
+      return this.state.sampleData.length > 0;
+    },
     generateSchema: function() {
+      if(!this.canGenerateSchema()) return;
+
       var schema = WDCSchema.generateSchema(this.state.sampleData, this.state.sampleSize);
       this.onSchemaChange(schema);
     },
     onSchemaChange: function(schema) {
       this.setState({ schema: schema });
     },
+    canSubmit: function() {
+      return this.state.schema.length > 0;
+    },
     submit: function() {
-      if(this.state.schema.length === 0) return;
+      if(!this.canSubmit()) return;
 
       //TODO: Set values on tableau.connectionData
       var connectionData = {
@@ -485,6 +493,9 @@
   FacebookWDCApp.element = React.createFactory(FacebookWDCApp);
 
   var FacebookLogin = React.createClass({
+    getInitialState: function () {
+      return { clientId: DEFAULT_CLIENT_ID, scope: DEFAULT_REQUESTED_SCOPE.split(',').join(', ') };
+    },
     render: function() {
       var warning = null;
       if(this.props.warningMessage) {
@@ -496,14 +507,22 @@
       }
 
       return (
-        DOM.div(null,
+        Panel.element(null,
           warning,
+          Input({ type: 'text', onChange: this.onClientIdChange, label: 'Client ID' }),
+          Input({ type: 'text', onChange: this.onScopeChange, label: 'Scope' }),
           ButtonInput.element({ onClick: this.onClick, value: 'Login' })
         )
       );
     },
     onClick: function() {
-      authenticate();
+      authenticate(this.state.clientId, this.state.scope);
+    },
+    onClientIdChange: function(e) {
+      this.state.clientId = e.target.value;
+    },
+    onScopeChange: function(e) {
+      this.state.scope = e.target.value.split(/\s,\s/).join(',');
     }
   });
   FacebookLogin.element = React.createFactory(FacebookLogin);
