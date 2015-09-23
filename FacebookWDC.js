@@ -393,7 +393,7 @@
   var FacebookWDCApp = React.createClass({
     getInitialState: function () {
       return {
-        pageId: '/me', edgeApi: '', maxObjectCount: 100,
+        pageId: '/me', edgeApi: '', maxObjectCount: 5000,
         sampleSize: 10, sampleData: [], sampleDataString: '[]',
         schema: [], errorMessage: ''
       };
@@ -509,8 +509,8 @@
       return (
         Panel.element(null,
           warning,
-          Input({ type: 'text', onChange: this.onClientIdChange, label: 'Client ID' }),
-          Input({ type: 'text', onChange: this.onScopeChange, label: 'Scope' }),
+          Input.element({ type: 'text', value: this.state.clientId, onChange: this.onClientIdChange, label: 'Client ID' }),
+          Input.element({ type: 'textarea', value: this.state.scope, onChange: this.onScopeChange, label: 'Scope' }),
           ButtonInput.element({ onClick: this.onClick, value: 'Login' })
         )
       );
