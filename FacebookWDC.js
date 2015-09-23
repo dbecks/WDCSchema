@@ -5,6 +5,7 @@
   var fbConnected = $.Deferred();
   var fbNotAuthorized = $.Deferred();
   var fbNotLoggedIn = $.Deferred();
+  var fbHasLoginStatus = $.Deferred();
   var wdcGatherDataPhase = $.Deferred();
   var wdcInteractivePhase = $.Deferred();
   var wdcAuthPhase = $.Deferred();
@@ -45,7 +46,7 @@
     "user_work_history",
     "read_custom_friendlists",
     "read_insights",
-    "read_audience_network_insights",
+    //"read_audience_network_insights",
     "read_mailbox",
     "read_page_mailboxes",
     "read_stream",
@@ -79,33 +80,38 @@
     window.location.href = fbAuthURL;
   }
 
-  window.fbAsyncInit = function() {
-    FB.init({
-      appId   : DEFAULT_CLIENT_ID,
-      cookie  : true,  // enable cookies to allow the server to access the session
-      xfbml   : false, // parse social plugins on this page is not needed
-      version : 'v2.3' // use version 2.3
-    });
+  FB.init({
+    appId   : DEFAULT_CLIENT_ID,
+    cookie  : true,  // enable cookies to allow the server to access the session
+    xfbml   : false, // parse social plugins on this page is not needed
+    version : 'v2.3' // use version 2.3
+  });
 
-    FB.getLoginStatus(function(response) {
-      switch(response.status) {
-        case FB_AUTH_STATUS.CONNECTED:      return fbConnected.resolve();
-        case FB_AUTH_STATUS.NOT_AUTHORIZED: return fbNotAuthorized.resolve();
-        default:                            return fbNotLoggedIn.resolve();
-      }
-    });
-  };
+  FB.getLoginStatus(function(response) {
+    switch(response.status) {
+      case FB_AUTH_STATUS.CONNECTED:
+        tableau.password = response.authResponse.accessToken;
+        fbConnected.resolve();
+        break;
+      case FB_AUTH_STATUS.NOT_AUTHORIZED:
+        fbNotAuthorized.resolve();
+        break;
+      default:
+        fbNotLoggedIn.resolve();
+        break;
+    }
 
-  // Load FB JavaScript SDK, TODO: Do I need to do it this way?
-  (function(d, s, id){
-    var js, fjs = d.getElementsByTagName(s)[0];
-    if (d.getElementById(id)) {return;}
-    js = d.createElement(s); js.id = id;
-    js.src = "https://connect.facebook.net/en_US/sdk.js";
-    fjs.parentNode.insertBefore(js, fjs);
-  }(window.document, 'script', 'facebook-jssdk'));
+    fbHasLoginStatus.resolve();
+  });
 
   function fetchFBData(fbRestApi, params, cb) {
+    // TODO get this to work with response.cursors and offset
+    if(_(params).isFunction()) {
+      cb = params;
+      params = {};
+    }
+
+    params = $.extend({ access_token: tableau.password }, params);
     var limit = params.limit;
 
     FB.api(fbRestApi, params, function(response) {
@@ -114,30 +120,64 @@
         return;
       }
 
+      /*
       if(response.data) {
-        var since, until;
+        var since, until, offset;
         if(response.paging) {
-          since = response.paging.previous.match(/since=([^&]*)/)[1];
-          until = response.paging.next.match(/until=([^&]*)/)[1];
+          if(response.paging.previous) {
+            sinceMatch =  response.paging.previous.match(/since=([^&]*)/);
+            since = sinceMatch && sinceMatch[0];
+          }
+
+
+          if(response.paging.next) {
+            var untilMatch = response.paging.next.match(/until=([^&]*)/);
+            until = untilMatch && untilMatch[1];
+
+            var offsetMatch = response.paging.next.match(/offset=([^&]*)/);
+            offset = offsetMatch && offsetMatch[1];
+          }
+
         }
 
         var numRecords = response.data.length;
         if(0 < numRecords && numRecords < limit) {
           if(params.paging && params.paging.until == until) { //If both until values are the same then we're at the end
-            cb(null, { data: [], paging: { since: since, until: until } });
+            cb(null, { data: [], paging: { since: since, until: until, offset: offset } });
             return;
           }
 
           // get more data
-          var nestedParams = { until: until, limit: (limit - numRecords) };
+          var nestedParams = { until: until, limit: (limit - numRecords), offset: offset };
           fetchFBData(fbRestApi, nestedParams, function(err, result) {
-            return cb(err);
+            if(err) return cb(err);
 
             var totalData = response.data.concat(result.data);
-            cb(null, { data: totalData, paging: { since: since, until: result.paging.until } });
+            cb(null, { data: totalData, paging: { since: since, until: result.paging.until, offset: offset } });
           });
         } else {
-          cb(null, { data: response.data, paging: { since: since, until: until } });
+          cb(null, { data: response.data, paging: { since: since, until: until, offset: offset } });
+        }
+      } else {
+        cb(null, { data: [ response ] }); // The response is an object that has all of the data needed
+      }
+      */
+
+      if(response.data) {
+
+        var numRecords = response.data.length;
+        var next = response.paging && response.paging.next;
+        if(0 < numRecords && numRecords < limit && next) {
+
+          // get more data
+          fetchFBData(next, function(err, result) {
+            if(err) return cb(err);
+
+            var totalData = response.data.concat(result.data);
+            cb(null, { data: totalData });
+          });
+        } else {
+          cb(null, { data: response.data });
         }
       } else {
         cb(null, { data: [ response ] }); // The response is an object that has all of the data needed
@@ -206,7 +246,19 @@
         wdcGatherDataPhase.resolve();
         break;
     }
-    tableau.initCallback();
+
+    if(!tableau.password) {
+      // Wait for FB status.  Should return cached response if already returned from server
+      FB.getLoginStatus(function(response) {
+        if(response.status === FB_AUTH_STATUS.CONNECTED) {
+          tableau.password = response.authResponse.accessToken;
+        }
+        tableau.initCallback();
+      });
+    } else {
+      tableau.initCallback();
+    }
+
   };
 
   connector.getColumnHeaders = function() {
@@ -361,7 +413,9 @@
                 Input.element({ type: 'number', label: 'Sample Size', onChange: this.onSampleSizeChange, value: this.state.sampleSize }),
                 ButtonInput.element({  value: 'Fetch Sample', onClick: this.fetchSample })
               ),
-              DOM.pre(null, this.state.sampleDataString)
+              this.state.errorMessage
+                ? Alert.element({ bsStyle: 'warning' }, this.state.errorMessage)
+                : DOM.pre(null, this.state.sampleDataString)
             ),
             Col.element({ md: 6 },
               DOM.div({ className: 'form-inline' },
@@ -398,9 +452,10 @@
     },
     fetchSample: function() {
       var _this = this;
-      fetchFBData(this.getFBApi(), { limit: this.state.sampleSize }, function(err, result) {
+      var api = this.getFBApi();
+      fetchFBData(api, { limit: this.state.sampleSize }, function(err, result) {
         if(err) {
-          _this.setState({ sampleData: [], sampleDataString: '[]', errorMessage: buildError(newAPI, response.error) });
+          _this.setState({ sampleData: [], sampleDataString: '[]', errorMessage: buildError(api, err) });
         } else {
           _this.setState({ sampleData: result.data, sampleDataString: JSON.stringify(result.data, null, 2), errorMessage: '' });
         }

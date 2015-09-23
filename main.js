@@ -118,11 +118,11 @@ X pass in a JSON to generate the initial schema
         Grid.element({ className: 'full-height', fluid: true },
           Row.element({ className: 'full-height', style: { paddingTop: '10px', paddingBottom: '10px' } },
             Col.element({ md: 4, className: 'fill-height' },
-              FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
+                Input.element({ type: 'textarea', style: textAreaStyle, onChange: this.onDataStringChange, value: this.state.dataString }),
+                ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema' })
             ),
             Col.element({ md: 4, className: 'fill-height' },
-              Input.element({ type: 'textarea', style: textAreaStyle, onChange: this.onDataStringChange, value: this.state.dataString }),
-              ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema' })
+              FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
             ),
             Col.element({ md: 4, className: 'fill-height' },
               HeaderPreview.element(this.state),
