@@ -1,4 +1,9 @@
-(function(window, $, _, WDCSchema, WDCSchemaUI) {
+(function(window, $, _, React, ReactBootstrap, WDCSchema, WDCSchemaUI) {
+
+  /*
+    TODO: This is very Facebook specific, abstract a lot of this away
+          to have an auth command and a data fetching/formatting step
+   */
 
   // States
   var documentReady = $.Deferred();
@@ -531,4 +536,4 @@
     authenticate: authenticate
   };
 
-})(window, jQuery, _, WDCSchema, WDCSchemaUI);
+})(window, jQuery, _, React, ReactBootstrap, WDCSchema, WDCSchemaUI);
