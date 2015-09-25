@@ -12,6 +12,7 @@
     } else {
       promise.resolve();
     }
+    return promise;
   }
 
   function setup(config) {
@@ -22,7 +23,7 @@
     }
 
     // Set up the password if one is needed
-    var passwordPromise = functionToPromise(config.getPassword, config);
+    var passwordPromise = functionToPromise(config.fetchPassword, config);
 
     // Set up the connector
     var connector = tableau.makeConnector();
@@ -75,17 +76,13 @@
 
       // TODO: Create a way to pass in errors or pass in progress if reading in a lot of data, maybe give a deffered? or is that too complicated?
       config.fetchData(tableau.password, lastRecordToken, connectionData.data, function(resultData, lastRecordToken) {
-        tableau.dataCallback(resultData, lastRecordToken, false);
+        var tableData = WDCSchema.convertToTable(resultData, connectionData.schema);
+
+        tableau.dataCallback(tableData, lastRecordToken, false);
       });
     };
 
     tableau.registerConnector(connector);
-
-
-
-
-
-
 
     return {
       setSchema: function(schema) {
@@ -94,8 +91,8 @@
       setConnectionName: function(name) {
         tableau.connectionName = name;
       },
-      setConnectionData: function(data) {
-        _metaData = data;
+      setConnectionData: function(metaData) {
+        _metaData = metaData;
       },
       getConnectionData: function() {
         if(typeof _metaData !== 'object') return _metaData;
@@ -106,23 +103,80 @@
     }
   }
 
+  ///////////////////////////////////////////////////////////////////////////
+
+  var documentReady = $.Deferred();
+  $(function() {
+    documentReady.resolve();
+  });
+
+  FB.init({
+    appId   : DEFAULT_CLIENT_ID, // TODO: This should be moved
+    cookie  : true,  // enable cookies to allow the server to access the session
+    xfbml   : false, // parse social plugins on this page is not needed
+    version : 'v2.3' // use version 2.3
+  });
+
+  var fbLoginStatusPromise = $.Deferred();
+  FB.getLoginStatus(function(r) {
+    fbLoginStatusPromise.resolve(r);
+  });
+
   var context = setup({
     fetchPassword: function(cb) {
+      FB.getLoginStatus(function(r) {
+        switch(fbLoginStatus.status) {
+          case FB_AUTH_STATUS.CONNECTED:
+            cb(fbLoginStatus && fbLoginStatus.authResponse && fbLoginStatus.authResponse.accessToken);
+            break;
+          case FB_AUTH_STATUS.NOT_AUTHORIZED:
+            renderElement(FacebookLogin, { warningMessage: 'Current logged in user is not authorized. Please login as a different user.' });
+            break;
+          default:
+            renderElement(FacebookLogin, null);
+            break;
+        }
+      });
 
+
+      $.when(fbLoginStatusPromise, documentReady)
+        .then(function(fbLoginStatus, readyEvent) {
+          switch(fbLoginStatus.status) {
+            case FB_AUTH_STATUS.CONNECTED:
+              cb(fbLoginStatus && fbLoginStatus.authResponse && fbLoginStatus.authResponse.accessToken);
+              break;
+            case FB_AUTH_STATUS.NOT_AUTHORIZED:
+              renderElement(FacebookLogin, { warningMessage: 'Current logged in user is not authorized. Please login as a different user.' });
+              break;
+            default:
+              renderElement(FacebookLogin, null);
+              break;
+          }
+        });
     },
 
     fetchSetupData: function(cb) {
-
+      renderElement(FacebookWDCApp, { onSubmit: cb });
     },
 
     //fetchData: function(password, lastRecordToken, metaData, done, progress, error) { // Do we want this instead?
     fetchData: function(password, lastRecordToken, metaData, cb) {
+      fetchFBData(metaData.fbApi, { limit: metaData.maxObjectCount, until: lastRecordToken }, function(err, result) {
+        if(err) {
+          // TODO: provide a non-global way of doing this
+          tableau.abortWithError(buildError(connectionData.fbApi, err));
+          return;
+        }
 
+        var lastRecordToken = result.paging && result.paging.since;
+
+        tableau.dataCallback(result.data, lastRecordToken, false);
+      });
     }
   });
 
+  /*
   // States
-  var documentReady = $.Deferred();
   var fbConnected = $.Deferred();
   var fbNotAuthorized = $.Deferred();
   var fbNotLoggedIn = $.Deferred();
@@ -130,6 +184,7 @@
   var wdcGatherDataPhase = $.Deferred();
   var wdcInteractivePhase = $.Deferred();
   var wdcAuthPhase = $.Deferred();
+  */
 
   // Facebook methods
   var DEFAULT_CLIENT_ID = '107253586284463'; // David Becker's App ID
@@ -200,14 +255,10 @@
 
     window.location.href = fbAuthURL;
   }
+  window.authenticate = authenticate
 
-  FB.init({
-    appId   : DEFAULT_CLIENT_ID,
-    cookie  : true,  // enable cookies to allow the server to access the session
-    xfbml   : false, // parse social plugins on this page is not needed
-    version : 'v2.3' // use version 2.3
-  });
 
+  /*
   FB.getLoginStatus(function(response) {
     switch(response.status) {
       case FB_AUTH_STATUS.CONNECTED:
@@ -224,6 +275,7 @@
 
     fbHasLoginStatus.resolve();
   });
+  */
 
   function fetchFBData(fbRestApi, params, cb) {
     // TODO get this to work with response.cursors and offset
@@ -232,7 +284,7 @@
       params = {};
     }
 
-    params = $.extend({ access_token: tableau.password }, params);
+    //params = $.extend({ access_token: tableau.password }, params);
     var limit = params.limit;
 
     FB.api(fbRestApi, params, function(response) {
@@ -314,6 +366,7 @@
     React.render(React.createElement(clazz, props), document.getElementById('appRoot'));
   }
 
+  /*
   $.when(documentReady, fbConnected, wdcInteractivePhase).then(function() {
     // Display schema UI
     renderElement(FacebookWDCApp, null);
@@ -408,6 +461,7 @@
   };
 
   tableau.registerConnector(connector);
+  */
 
   /////////////////////////////////////////////////////////
   // Components
@@ -603,12 +657,12 @@
       //TODO: Set values on tableau.connectionData
       var connectionData = {
         fbApi: this.getFBApi(),
-        maxObjectCount: this.state.maxObjectCount,
-        schema: this.state.schema
-
+        maxObjectCount: this.state.maxObjectCount
       };
-      tableau.connectionData = JSON.stringify(connectionData);
-      tableau.submit();
+
+      if(this.props.onSubmit) {
+        this.props.onSubmit(this.state.schema, connectionData);
+      }
     }
   });
   FacebookWDCApp.element = React.createFactory(FacebookWDCApp);
