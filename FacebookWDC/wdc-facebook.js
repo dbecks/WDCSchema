@@ -1,195 +1,15 @@
-(function(window, $, _, React, ReactBootstrap, WDCSchema, WDCSchemaUI) {
-
-  /*
-    TODO: This is very Facebook specific, abstract a lot of this away
-          to have an auth command and a data fetching/formatting step
-   */
-
-  function functionToPromise(fn, ctx) {
-    var promise = $.Deferred();
-    if (fn) {
-      fn.call(ctx, promise.resolve);
-    } else {
-      promise.resolve();
-    }
-    return promise;
-  }
-
-  function setup(config) {
-    var _schema, _metaData, _password;
-
-    if(!config.fetchData) {
-      throw new Error('setup requires a fetchData(password, lastRecordToken, data, cb) function.');
-    }
-
-    // Set up the password if one is needed
-    var passwordPromise = functionToPromise(config.fetchPassword, config);
-
-    // Set up the connector
-    var connector = tableau.makeConnector();
-
-    connector.init = function() {
-
-      var operationsPromiseChain = passwordPromise;
-
-      if (tableau.phase === tableau.phaseEnum.authPhase ||
-          tableau.phase === tableau.phaseEnum.interactivePhase)
-      {
-        // Fetch password information
-        operationsPromiseChain = operationsPromiseChain
-          .then(function() { return passwordPromise; })
-          .then(function(password) {
-            if(password == null) password = _password;
-            tableau.password = password;
-          });
-      }
-
-      if(tableau.phase === tableau.phaseEnum.interactivePhase) {
-        // fetch additional information if more information is needed.
-        operationsPromiseChain
-          .then(function() { return functionToPromise(config.fetchSetupData, config); })
-          .then(function(schema, metaData) {
-            if(schema == null) schema = _schema;
-            if(metaData == null) metaData = _metaData;
-
-            if(!schema) {
-              throw new Error('A schema was never set. Please pass in a fetchSetupData handler to setup() or call context.setSchema() on the returned object');
-            }
-
-            tableau.connectionData = JSON.stringify({ schema: schema, metaData: metaData });
-            tableau.submit();
-          });
-      }
-    };
-
-    connector.getColumnHeaders = function() {
-      var connectionData = JSON.parse(tableau.connectionData);
-      var headers = WDCSchema.convertToTableHeaders(connectionData.schema);
-      var fieldNames = _.keys(headers);
-      var fieldTypes = _.values(headers);
-
-      tableau.headersCallback(fieldNames, fieldTypes);
-    };
-
-    connector.getTableData = function(lastRecordToken) {
-      var connectionData = JSON.parse(tableau.connectionData);
-
-      // TODO: Create a way to pass in errors or pass in progress if reading in a lot of data, maybe give a deffered? or is that too complicated?
-      config.fetchData(tableau.password, lastRecordToken, connectionData.data, function(resultData, lastRecordToken) {
-        var tableData = WDCSchema.convertToTable(resultData, connectionData.schema);
-
-        tableau.dataCallback(tableData, lastRecordToken, false);
-      });
-    };
-
-    tableau.registerConnector(connector);
-
-    return {
-      setSchema: function(schema) {
-        _schema = schema;
-      },
-      setConnectionName: function(name) {
-        tableau.connectionName = name;
-      },
-      setConnectionData: function(metaData) {
-        _metaData = metaData;
-      },
-      getConnectionData: function() {
-        if(typeof _metaData !== 'object') return _metaData;
-
-        // Return a deep clone to keep _data immutable
-        return $.extend(true, Array.isArray(_metaData) ? [] : {}, data);
-      }
-    }
-  }
-
-  ///////////////////////////////////////////////////////////////////////////
-
-  var documentReady = $.Deferred();
-  $(function() {
-    documentReady.resolve();
-  });
-
-  FB.init({
-    appId   : DEFAULT_CLIENT_ID, // TODO: This should be moved
-    cookie  : true,  // enable cookies to allow the server to access the session
-    xfbml   : false, // parse social plugins on this page is not needed
-    version : 'v2.3' // use version 2.3
-  });
-
-  var fbLoginStatusPromise = $.Deferred();
-  FB.getLoginStatus(function(r) {
-    fbLoginStatusPromise.resolve(r);
-  });
-
-  var context = setup({
-    fetchPassword: function(cb) {
-      FB.getLoginStatus(function(r) {
-        switch(fbLoginStatus.status) {
-          case FB_AUTH_STATUS.CONNECTED:
-            cb(fbLoginStatus && fbLoginStatus.authResponse && fbLoginStatus.authResponse.accessToken);
-            break;
-          case FB_AUTH_STATUS.NOT_AUTHORIZED:
-            renderElement(FacebookLogin, { warningMessage: 'Current logged in user is not authorized. Please login as a different user.' });
-            break;
-          default:
-            renderElement(FacebookLogin, null);
-            break;
-        }
-      });
-
-
-      $.when(fbLoginStatusPromise, documentReady)
-        .then(function(fbLoginStatus, readyEvent) {
-          switch(fbLoginStatus.status) {
-            case FB_AUTH_STATUS.CONNECTED:
-              cb(fbLoginStatus && fbLoginStatus.authResponse && fbLoginStatus.authResponse.accessToken);
-              break;
-            case FB_AUTH_STATUS.NOT_AUTHORIZED:
-              renderElement(FacebookLogin, { warningMessage: 'Current logged in user is not authorized. Please login as a different user.' });
-              break;
-            default:
-              renderElement(FacebookLogin, null);
-              break;
-          }
-        });
-    },
-
-    fetchSetupData: function(cb) {
-      renderElement(FacebookWDCApp, { onSubmit: cb });
-    },
-
-    //fetchData: function(password, lastRecordToken, metaData, done, progress, error) { // Do we want this instead?
-    fetchData: function(password, lastRecordToken, metaData, cb) {
-      fetchFBData(metaData.fbApi, { limit: metaData.maxObjectCount, until: lastRecordToken }, function(err, result) {
-        if(err) {
-          // TODO: provide a non-global way of doing this
-          tableau.abortWithError(buildError(connectionData.fbApi, err));
-          return;
-        }
-
-        var lastRecordToken = result.paging && result.paging.since;
-
-        tableau.dataCallback(result.data, lastRecordToken, false);
-      });
-    }
-  });
-
-  /*
-  // States
-  var fbConnected = $.Deferred();
-  var fbNotAuthorized = $.Deferred();
-  var fbNotLoggedIn = $.Deferred();
-  var fbHasLoginStatus = $.Deferred();
-  var wdcGatherDataPhase = $.Deferred();
-  var wdcInteractivePhase = $.Deferred();
-  var wdcAuthPhase = $.Deferred();
-  */
+(function(window, $, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI) {
 
   // Facebook methods
   var DEFAULT_CLIENT_ID = '107253586284463'; // David Becker's App ID
   //var DEFAULT_CLIENT_ID = "475960835902299"; // This is Samm's personal app id
   //var DEFAULT_CLIENT_ID = "131331403865338"; // This is the the Tableau id that Francois put in
+  var passedInClientId = null;
+
+  var clientIdMatch = window.location.search.match(/state=([^&\/]*)/);
+  if(clientIdMatch) {
+    passedInClientId = clientIdMatch[1];
+  }
 
   var scope = [
     "user_friends",
@@ -244,38 +64,36 @@
   };
 
   function authenticate(clientId, scope) {
+
     var oauthParams = {
-      response_type : 'token',
-      client_id     : clientId || DEFAULT_CLIENT_ID,
+      response_type : 'code',
+      client_id     : clientId,
       redirect_uri  : window.location.href, // Navigate back here
-      scope         : scope || DEFAULT_REQUESTED_SCOPE
+      scope         : scope,
+      state         : clientId
     };
 
     var fbAuthURL = FACEBOOK_OAUTH + '?' + $.param(oauthParams);
 
     window.location.href = fbAuthURL;
   }
-  window.authenticate = authenticate
 
+  function getAccessToken(clientId, cb) {
+    FB.init({
+      appId   : clientId,
+      cookie  : false,  // enable cookies to allow the server to access the session
+      xfbml   : false, // parse social plugins on this page is not needed
+      version : 'v2.3' // use version 2.3
+    });
 
-  /*
-  FB.getLoginStatus(function(response) {
-    switch(response.status) {
-      case FB_AUTH_STATUS.CONNECTED:
-        tableau.password = response.authResponse.accessToken;
-        fbConnected.resolve();
-        break;
-      case FB_AUTH_STATUS.NOT_AUTHORIZED:
-        fbNotAuthorized.resolve();
-        break;
-      default:
-        fbNotLoggedIn.resolve();
-        break;
-    }
-
-    fbHasLoginStatus.resolve();
-  });
-  */
+    FB.getLoginStatus(function(fbLoginStatus) {
+      if(fbLoginStatus && (fbLoginStatus.status === FB_AUTH_STATUS.CONNECTED) && fbLoginStatus.authResponse) {
+        cb(fbLoginStatus.authResponse.accessToken);
+      } else {
+        cb();
+      }
+    });
+  }
 
   function fetchFBData(fbRestApi, params, cb) {
     // TODO get this to work with response.cursors and offset
@@ -358,110 +176,59 @@
     });
   }
 
-  tableau.connectionName = 'Facebook';
+
+  var documentReady = $.Deferred();
+  $(function() {
+    documentReady.resolve();
+  });
+
+  var context = TableauSchema.setup({
+    fetchPassword: function(cb) {
+      documentReady.then(function() {
+        if(passedInClientId) {
+          getAccessToken(passedInClientId, function(accessToken) {
+            if(accessToken) {
+              cb(accessToken);
+            } else {
+              renderElement(FacebookLogin, { onAccessToken: cb });
+            }
+          });
+        } else {
+          renderElement(FacebookLogin, { onAccessToken: cb });
+        }
+      });
+    },
+
+    fetchSetupData: function(cb) {
+      documentReady.then(function() {
+        renderElement(FacebookWDCApp, { onSubmit: cb });
+      });
+    },
+
+    fetchData: function(password, lastRecordToken, metaData, cb) {
+      if(!password) {
+        throw new Error('Missing password when fetching data')
+      }
+
+      fetchFBData(metaData.fbApi, { limit: metaData.maxObjectCount, until: lastRecordToken }, function(err, result) {
+        if(err) {
+          throw new Error(buildError(metaData.fbApi, err));
+        }
+
+        var lastRecordToken = result.paging && result.paging.since;
+
+        cb(result.data, lastRecordToken, false);
+      });
+    }
+  });
+
+  context.setConnectionName('Facebook');
 
   // Set up action handlers
 
   function renderElement(clazz, props) {
     React.render(React.createElement(clazz, props), document.getElementById('appRoot'));
   }
-
-  /*
-  $.when(documentReady, fbConnected, wdcInteractivePhase).then(function() {
-    // Display schema UI
-    renderElement(FacebookWDCApp, null);
-  });
-
-  function warnNotAuthorizedAndLogin() {
-    // Display warning that user is not authorized and login button
-    renderElement(FacebookLogin, { warningMessage: 'Current logged in user is not authorized. Please login as a different user.' });
-  }
-  $.when(documentReady, fbNotAuthorized, wdcInteractivePhase).then(warnNotAuthorizedAndLogin);
-  $.when(documentReady, fbNotAuthorized, wdcAuthPhase).then(warnNotAuthorizedAndLogin);
-
-  function displayAuthButton() {
-    // Display warning that user is not authorized and login button
-    renderElement(FacebookLogin, null);
-  }
-  $.when(documentReady, fbNotLoggedIn, wdcInteractivePhase).then(displayAuthButton);
-  $.when(documentReady, fbConnected, wdcAuthPhase).then(displayAuthButton); // Show login again even if currently logged in
-  $.when(documentReady, fbNotLoggedIn, wdcAuthPhase).then(displayAuthButton);
-
-  $.when(wdcGatherDataPhase, fbConnected).then(function() {
-    // gather data,
-    // or do nothing because that's handled by the connector?... that seems weird
-  });
-
-  $.when(wdcGatherDataPhase, fbNotAuthorized).then(function() {
-    tableau.abortWithError('Requested data with an unauthorized user. Please re-authenticate to gather data.')
-  });
-
-  $.when(wdcGatherDataPhase, fbNotLoggedIn).then(function() {
-    tableau.abortWithError('Requested data with out a logged in user. Please re-authenticate to gather data.')
-  });
-
-  // Set up action calls
-
-  $(function() {
-    documentReady.resolve();
-  });
-
-  var connector = tableau.makeConnector();
-
-  connector.init = function() {
-    switch(tableau.phase) {
-      case tableau.phaseEnum.interactivePhase:
-        wdcInteractivePhase.resolve();
-        break;
-      case tableau.phaseEnum.authPhase:
-        wdcAuthPhase.resolve();
-        break;
-      case tableau.phaseEnum.gatherDataPhase:
-        wdcGatherDataPhase.resolve();
-        break;
-    }
-
-    if(!tableau.password) {
-      // Wait for FB status.  Should return cached response if already returned from server
-      FB.getLoginStatus(function(response) {
-        if(response.status === FB_AUTH_STATUS.CONNECTED) {
-          tableau.password = response.authResponse.accessToken;
-        }
-        tableau.initCallback();
-      });
-    } else {
-      tableau.initCallback();
-    }
-
-  };
-
-  connector.getColumnHeaders = function() {
-    var connectionData = JSON.parse(tableau.connectionData);
-    var headers = WDCSchema.convertToTableHeaders(connectionData.schema);
-    var fieldNames = _.keys(headers);
-    var fieldTypes = _.values(headers);
-
-    tableau.headersCallback(fieldNames, fieldTypes);
-  };
-
-  connector.getTableData = function(lastRecordToken) {
-    var connectionData = JSON.parse(tableau.connectionData);
-
-    fetchFBData(connectionData.fbApi, { limit: connectionData.maxObjectCount, until: lastRecordToken }, function(err, result) {
-      if(err) {
-        tableau.abortWithError(buildError(connectionData.fbApi, err));
-        return;
-      }
-
-      var tableData = WDCSchema.convertToTable(result.data, connectionData.schema);
-      var lastRecordToken = result.paging && result.paging.since;
-
-      tableau.dataCallback(tableData, lastRecordToken, false);
-    });
-  };
-
-  tableau.registerConnector(connector);
-  */
 
   /////////////////////////////////////////////////////////
   // Components
@@ -691,7 +458,15 @@
       );
     },
     onClick: function() {
-      authenticate(this.state.clientId, this.state.scope);
+      var _this = this;
+
+      getAccessToken(this.state.clientId, function(accessToken) {
+        if(accessToken) {
+          _this.props.onAccessToken(accessToken);
+        } else {
+          authenticate(_this.state.clientId, _this.state.scope);
+        }
+      });
     },
     onClientIdChange: function(e) {
       this.state.clientId = e.target.value;
@@ -706,4 +481,4 @@
     authenticate: authenticate
   };
 
-})(window, jQuery, _, React, ReactBootstrap, WDCSchema, WDCSchemaUI);
+})(window, jQuery, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI);

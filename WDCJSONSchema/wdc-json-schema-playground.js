@@ -27,7 +27,7 @@ X pass in a JSON to generate the initial schema
   var Row = ReactBootstrap.Row;
   var Col = ReactBootstrap.Col;
 
-  var HeaderPreview = React.createClass({
+  var TableHeaderPreview = React.createClass({
     getInitialState: function () {
       return this.propsToState(this.props);
     },
@@ -57,9 +57,9 @@ X pass in a JSON to generate the initial schema
       return { previewText: previewText, errorMessage: errorMessage };
     }
   });
-  HeaderPreview.element = React.createFactory(HeaderPreview);
+  TableHeaderPreview.element = React.createFactory(TableHeaderPreview);
 
-  var TablePreview = React.createClass({
+  var TableDataPreview = React.createClass({
     getInitialState: function () {
       var state = this.propsToState(this.props);
       if(this.props.onTableChange) this.props.onTableChange(state.previewTable);
@@ -99,6 +99,58 @@ X pass in a JSON to generate the initial schema
       return { previewTable: previewTable, previewText: previewText, errorMessage: errorMessage };
     }
   });
+  TableDataPreview.element = React.createFactory(TableDataPreview);
+
+  function mapObject(obj, iteratee, ctx) { return _.chain(obj).mapObject(iteratee, ctx).values().value(); }
+  var Table = ReactBootstrap.Table;
+  var Panel = ReactBootstrap.Panel;
+
+  var tableRowKey = 1;
+  var TablePreview = React.createClass({
+    getInitialState: function () {
+      return this.propsToState(this.props);
+    },
+    componentWillReceiveProps: function(nextProps) {
+      this.setState(this.propsToState(nextProps));
+    },
+    render: function () {
+      var state = this.state;
+      var headerName = Object.keys(state.headers); // Maintains the order
+
+
+      if(headerName.length === 0) return Well.element(null, 'Cannot create table')
+
+      return (
+        Table.element({ bordered: true, condensed: true },
+          DOM.thead(null,
+            DOM.tr(null,
+              headerName.map(function(headerName) {
+                var type = state.headers[headerName];
+                return DOM.th({ key: tableRowKey++ }, headerName + ' (' + type + ')');
+              })
+            )
+          ),
+          DOM.tbody(null,
+            state.tableData.map(function(row) {
+              return DOM.tr({ key: tableRowKey++ },
+                headerName.map(function(headerName) {
+                  var tableCellValue = row[headerName];
+                  return DOM.td({ key: tableRowKey++ }, tableCellValue);
+                })
+              )
+            })
+          )
+        )
+      );
+    },
+
+    propsToState: function(props) {
+      return {
+        headers: WDCSchema.convertToTableHeaders(props.schema),
+        tableData: WDCSchema.convertToTable(props.data, props.schema)
+      };
+    }
+  });
   TablePreview.element = React.createFactory(TablePreview);
 
   var SchemaPreviewApp = React.createClass({
@@ -118,15 +170,15 @@ X pass in a JSON to generate the initial schema
         Grid.element({ className: 'full-height', fluid: true },
           Row.element({ className: 'full-height', style: { paddingTop: '10px', paddingBottom: '10px' } },
             Col.element({ md: 4, className: 'fill-height' },
-                Input.element({ type: 'textarea', style: textAreaStyle, onChange: this.onDataStringChange, value: this.state.dataString }),
-                ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema' })
+              Input.element({ type: 'textarea', style: textAreaStyle, onChange: this.onDataStringChange, value: this.state.dataString }),
+              ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema' })
             ),
             Col.element({ md: 4, className: 'fill-height' },
               FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
             ),
             Col.element({ md: 4, className: 'fill-height' },
-              HeaderPreview.element(this.state),
               TablePreview.element(this.state)
+              //TableDataPreview.element(this.state)
             )
           )
         )
