@@ -10,7 +10,7 @@ X pass in a JSON to generate the initial schema
 - create a way to join multiple requests to create the table
  */
 
-(function(ns, $, _, React, ReactBootstrap, WDCSchema, WDCSchemaUI) {
+(function(ns, $, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI) {
 
   var DOM        = React.DOM;
   var Field      = WDCSchemaUI.Field;
@@ -21,7 +21,7 @@ X pass in a JSON to generate the initial schema
   });
 
   var Input = ReactBootstrap.Input;
-  var ButtonInput = ReactBootstrap.ButtonInput;
+  var Button = ReactBootstrap.Button;
   var Well = ReactBootstrap.Well;
   var Grid = ReactBootstrap.Grid;
   var Row = ReactBootstrap.Row;
@@ -108,17 +108,39 @@ X pass in a JSON to generate the initial schema
   var tableRowKey = 1;
   var TablePreview = React.createClass({
     getInitialState: function () {
-      return this.propsToState(this.props);
+      var state = this.propsToState(this.props);
+      this.notifyState(state);
+      return state;
     },
     componentWillReceiveProps: function(nextProps) {
-      this.setState(this.propsToState(nextProps));
+      var _this = this;
+      this.setState(this.propsToState(nextProps), function() {
+        _this.notifyState(_this.state);
+      });
     },
     render: function () {
       var state = this.state;
       var headerName = Object.keys(state.headers); // Maintains the order
 
+      if(headerName.length === 0) return Well.element(null, 'Cannot create table');
+      if(this.props.errorMessage) return Well.element(null, this.props.errorMessage)
 
-      if(headerName.length === 0) return Well.element(null, 'Cannot create table')
+      var tableData = state.tableData.map(function(row) {
+        return DOM.tr({ key: tableRowKey++ },
+          headerName.map(function(headerName) {
+            var tableCellValue = row[headerName];
+            return DOM.td({ key: tableRowKey++ }, tableCellValue);
+          })
+        )
+      });
+
+      if(this.state.isUsingSampleSize) {
+        tableData.push(
+          DOM.tr({ key: tableRowKey++ },
+            DOM.td({ colSpan: headerName.length }, 'Not all data displayed')
+          )
+        );
+      }
 
       return (
         Table.element({ bordered: true, condensed: true },
@@ -130,54 +152,103 @@ X pass in a JSON to generate the initial schema
               })
             )
           ),
-          DOM.tbody(null,
-            state.tableData.map(function(row) {
-              return DOM.tr({ key: tableRowKey++ },
-                headerName.map(function(headerName) {
-                  var tableCellValue = row[headerName];
-                  return DOM.td({ key: tableRowKey++ }, tableCellValue);
-                })
-              )
-            })
-          )
+          DOM.tbody(null, tableData)
         )
       );
     },
 
     propsToState: function(props) {
+      var data = props.data;
+      var isUsingSampleSize = false;
+      if(Array.isArray(data) && _(props.sampleSize).isNumber()) {
+        isUsingSampleSize = true;
+        data = data.slice(0, props.sampleSize)
+      }
+
       return {
         headers: WDCSchema.convertToTableHeaders(props.schema),
-        tableData: WDCSchema.convertToTable(props.data, props.schema)
+        tableData: WDCSchema.convertToTable(data, props.schema),
+        isUsingSampleSize: isUsingSampleSize
       };
+    },
+    notifyState: function(state) {
+      if(this.props.onHeadersChange) this.props.onHeadersChange(state.headers);
+      if(this.props.onTableChange) this.props.onTableChange(state.tableData);
     }
   });
   TablePreview.element = React.createFactory(TablePreview);
 
-  var SchemaPreviewApp = React.createClass({
+  var FetchData = React.createClass({
+    render: function() {
+      var submitButton = Button.element({ onClick: this.fetchData }, 'Fetch Data');
+
+      return (
+        Input.element({ type: 'text', ref: 'jsonAddress', buttonAfter: submitButton, placeholder: 'Address to JSON' })
+      );
+    },
+
+    fetchData: function() {
+      if(!this.props.onData) return;
+
+      var _this = this;
+
+      $.get(this.refs.jsonAddress.getValue())
+        .then(function(responseBody) {
+          if(responseBody.data) { // Should I expose this?
+            console.log('Ajax full response:');
+            console.log(responseBody);
+
+            _this.props.onData(responseBody.data);
+          } else {
+            _this.props.onData(responseBody);
+          }
+        });
+    }
+  });
+  FetchData.element = React.createFactory(FetchData);
+
+
+
+  var SchemaPlaygroundApp = React.createClass({
     getInitialState: function () {
-      var updateDataString = this.updateDataString; //_.debounce(this.updateDataString, SchemaPreviewApp.DEBOUNCE_TIME);
-      var updateSchema = _.debounce(this.updateSchema, SchemaPreviewApp.DEBOUNCE_TIME);
+      var updateDataString = this.updateDataString; //_.debounce(this.updateDataString, SchemaPlaygroundApp.DEBOUNCE_TIME);
+      var updateSchema = _.debounce(this.updateSchema, SchemaPlaygroundApp.DEBOUNCE_TIME);
 
       return {
         schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString,
-        updateSchema: updateSchema, onTableChange: this.onTableChange
+        updateSchema: updateSchema, onTableChange: this.onTableChange, sampleSize: SchemaPlaygroundApp.DEFAULT_SAMPLE_SIZE
       };
     },
     render: function () {
       var textAreaStyle = { height: '300px', maxWidth: '100%', minWidth: '100%' };
+      var submitButton = null;
+      if(this.props.onSubmit) {
+        submitButton = Button.element({ onClick: this.submitData, disabled: this.submitDataDisabled() }, 'Submit Data');
+      }
 
       return (
-        Grid.element({ className: 'full-height', fluid: true },
-          Row.element({ className: 'full-height', style: { paddingTop: '10px', paddingBottom: '10px' } },
-            Col.element({ md: 4, className: 'fill-height' },
+        Grid.element({ className: 'full-height', style: { paddingTop: '10px', paddingBottom: '10px' }, fluid: true },
+          Row.element({ style: { height: '80%' } },
+            Col.element({ md: 6, className: 'fill-height' },
+              FetchData.element({ onData: this.updateData }),
               Input.element({ type: 'textarea', style: textAreaStyle, onChange: this.onDataStringChange, value: this.state.dataString }),
-              ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema' })
+              DOM.div({ className: 'form-inline' },
+                Button.element({ onClick: this.generateSchema}, 'Generate the Schema'),
+                Input.element({
+                  type: 'number', label: 'Sample Size', onChange: this.onSampleSizeChange,
+                  value: this.state.sampleSize
+                })
+              )
             ),
-            Col.element({ md: 4, className: 'fill-height' },
+            Col.element({ md: 6, className: 'fill-height' },
               FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
-            ),
-            Col.element({ md: 4, className: 'fill-height' },
+            )
+          ),
+          Row.element({},
+            Col.element({ md: 12, className: 'fill-height' },
+              submitButton,
               TablePreview.element(this.state)
+              //TableHeaderPreview.element(this.state)
               //TableDataPreview.element(this.state)
             )
           )
@@ -194,7 +265,7 @@ X pass in a JSON to generate the initial schema
       });
     },
     generateSchema: function() {
-      var schema = ns.WDCSchema.generateSchema(this.state.data, 50);
+      var schema = ns.WDCSchema.generateSchema(this.state.data, this.state.sampleSize || SchemaPlaygroundApp.DEFAULT_SAMPLE_SIZE);
       this.setState({ schema: schema });
     },
     onDataStringChange: function(event) {
@@ -206,38 +277,74 @@ X pass in a JSON to generate the initial schema
       try {
         data = JSON.parse(dataString);
       } catch(e) {
-        errorMessage = 'Invalid preview input data';
+        errorMessage = 'Invalid input data. Please use a valid JSON structure.';
       }
 
       this.setState({ dataString: dataString, data: data, errorMessage: errorMessage });
     },
+    updateData: function(data) {
+      this.setState({ dataString: JSON.stringify(data, null, 2), data: data, errorMessage: '' });
+    },
     onTableChange: function(data) {
       if(this.props.onTableChange) this.props.onTableChange(data);
+    },
+    onSampleSizeChange: function(e) {
+      this.setState({ sampleSize: e.target.value });
+    },
+    submitData: function() {
+      if(!this.props.onSubmit) return;
+
+      this.props.onSubmit(this.state.schema, this.state.data);
+    },
+    submitDataDisabled: function() {
+      return !this.state.schema || (this.state.schema.length === 0)
+          || !this.state.data || (this.state.data.length === 0)
     }
   });
-  SchemaPreviewApp.DEBOUNCE_TIME = 100;
+  SchemaPlaygroundApp.DEFAULT_SAMPLE_SIZE = 10;
+  SchemaPlaygroundApp.DEBOUNCE_TIME = 100;
 
   ////////////////////////////////////////////////////////////
-  // TODO: Move the following to a separate file
 
-  function updateGlobalFieldGroup(fieldGroup) {
-    ns.fieldGroup = fieldGroup;
+  var isInAWDC = (window !== window.top) || (!!window.opener) // If this page was opened by another assume it's in t a simulator
+              || (window.navigator.userAgent.indexOf('Tableau') >= 0) // Or Tableau user agent
+
+  if(isInAWDC) {
+    TableauSchema.setup({
+      fetchSetupData: function (cb) {
+        $(function () {
+          React.render(
+            React.createElement(SchemaPlaygroundApp, {onSubmit: cb}),
+            document.getElementById('fieldGroup')
+          );
+        });
+      },
+
+      fetchData: function (password, lastRecordToken, data, cb) {
+        cb(data);
+      }
+    }).setConnectionName('Playground')
+  } else {
+    function updateGlobalFieldGroup(fieldGroup) {
+      ns.fieldGroup = fieldGroup;
+    }
+
+    function updateGlobalDataTable(table) {
+      ns.dataTable = table;
+    }
+
+    ns.getHeaders = function() {
+      return WDCSchema.convertToTableHeaders(ns.fieldGroup);
+    };
+
+    $(function() {
+      //ns.fieldGroup = new FieldGroupElm($('body'));
+      React.render(
+        React.createElement(SchemaPlaygroundApp, { onSchemaChange: updateGlobalFieldGroup, onTableChange: updateGlobalDataTable }),
+        document.getElementById('fieldGroup')
+      );
+    });
   }
 
-  function updateGlobalDataTable(table) {
-    ns.dataTable = table;
-  }
 
-  ns.getHeaders = function() {
-    return WDCSchema.convertToTableHeaders(ns.fieldGroup);
-  };
-
-  $(function() {
-    //ns.fieldGroup = new FieldGroupElm($('body'));
-    React.render(
-      React.createElement(SchemaPreviewApp, { onSchemaChange: updateGlobalFieldGroup, onTableChange: updateGlobalDataTable }),
-      document.getElementById('fieldGroup')
-    );
-  });
-
-})(window, jQuery, _, React, ReactBootstrap, WDCSchema, WDCSchemaUI);
+})(window, jQuery, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI);

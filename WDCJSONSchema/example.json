@@ -1,0 +1,74 @@
+[
+  {
+    "intKey": 0,
+    "strKey": "a",
+    "dateKey": "Jan 1 2015",
+    "datetimeKey": "1/1/2015 1:23:45",
+    "floatKey": 1.2,
+    "objKey": {
+      "intKey": 0,
+      "strKey": "a",
+      "dateKey": "Jan 1 2015",
+      "datetimeKey": "1/1/2015 1:23:45",
+      "floatKey": 1.2
+    },
+    "arrKey": [
+      "a",
+      "b",
+      "c"
+    ]
+  },
+  {
+    "intKey": 1,
+    "strKey": "b",
+    "dateKey": "Feb 2 2015",
+    "datetimeKey": "2/2/2015 2:34:56",
+    "floatKey": 3.4,
+    "objKey": {
+      "intKey": 1,
+      "strKey": "b",
+      "dateKey": "Feb 2 2015",
+      "datetimeKey": "2/2/2015 2:34:56",
+      "floatKey": 3.4
+    },
+    "arrKey": [
+      "d",
+      "e"
+    ]
+  },
+  {
+    "intKey": 2,
+    "strKey": "c",
+    "dateKey": "Mar 3 2015",
+    "datetimeKey": "3/3/2015 3:21:09",
+    "floatKey": 5.6,
+    "objKey": {
+      "intKey": 2,
+      "strKey": "c",
+      "dateKey": "Mar 3 2015",
+      "datetimeKey": "3/3/2015 3:21:09",
+      "floatKey": 5.6
+    },
+    "arrKey": [ ]
+  },
+  {
+    "intKey": 3,
+    "strKey": "d",
+    "dateKey": "Apr 4 2015",
+    "datetimeKey": "4/4/2015 4:56:12",
+    "floatKey": 7.8,
+    "objKey": {
+      "intKey": 3,
+      "strKey": "d",
+      "dateKey": "Apr 4 2015",
+      "datetimeKey": "4/4/2015 4:56:12",
+      "floatKey": 7.8
+    },
+    "arrKey": [
+      "f",
+      "g",
+      "h",
+      "i"
+    ]
+  }
+]

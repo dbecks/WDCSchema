@@ -12,7 +12,8 @@
   }
 
   function setup(config) {
-    var _schema, _metaData, _password, _connectionName;
+    var _schema, _metaData, _connectionName;
+    var _password = tableau.password;
 
     if(!config.fetchData) {
       throw new Error('setup requires a fetchData(password, lastRecordToken, data, cb) function.');
@@ -43,7 +44,7 @@
         operationsPromiseChain = operationsPromiseChain
           .then(function() { return passwordPromise; })
           .then(function(password) {
-            if(password == null) password = _password;
+            if(_(password).isString()) password = _password;
             tableau.password = password;
           })
           .then(function()  { tableau.initCallback(); });
@@ -89,15 +90,18 @@
 
     tableau.registerConnector(connector);
 
-    return {
+    var context = {
       setSchema: function(schema) {
         _schema = schema;
+        return context; // for chaining
       },
       setConnectionName: function(name) {
         _connectionName = name;
+        return context; // for chaining
       },
       setConnectionData: function(metaData) {
         _metaData = metaData;
+        return context; // for chaining
       },
       getConnectionData: function() {
         if(typeof _metaData !== 'object') return _metaData;
@@ -105,7 +109,9 @@
         // Return a deep clone to keep _data immutable
         return $.extend(true, Array.isArray(_metaData) ? [] : {}, data);
       }
-    }
+    };
+
+    return context;
   }
 
   window.TableauSchema = {

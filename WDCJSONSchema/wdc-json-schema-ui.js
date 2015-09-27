@@ -8,7 +8,7 @@
   });
 
   var Input = ReactBootstrap.Input;
-  var ButtonInput = ReactBootstrap.ButtonInput;
+  var Button = ReactBootstrap.Button;
   var Panel = ReactBootstrap.Panel;
   var ListGroup = ReactBootstrap.ListGroup;
   var ListGroupItem = ReactBootstrap.ListGroupItem;
@@ -93,7 +93,7 @@
             DOM.div({ className: 'form-inline' },
               Input.element({ type: 'text', className: 'fieldName', value: this.state.field.name, onChange: this.onFieldNameChange }),
               FieldTypeSelect.element({ className: 'fieldType', value: this.state.field.type, onChange: this.onFieldTypeChange }),
-              ButtonInput.element({ className: 'fieldDelete', onClick: this.props.onFieldDelete }, 'Delete')
+              Button.element({ className: 'fieldDelete', onClick: this.props.onFieldDelete }, 'Delete')
             )
           ),
           arrayType,
