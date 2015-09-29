@@ -160,7 +160,7 @@ X pass in a JSON to generate the initial schema
     propsToState: function(props) {
       var data = props.data;
       var isUsingSampleSize = false;
-      if(Array.isArray(data) && _(props.sampleSize).isNumber()) {
+      if(Array.isArray(data) && !_(parseInt(props.sampleSize)).isNaN()) {
         isUsingSampleSize = true;
         data = data.slice(0, props.sampleSize)
       }
@@ -306,7 +306,7 @@ X pass in a JSON to generate the initial schema
 
   ////////////////////////////////////////////////////////////
 
-  var isInAWDC = (window !== window.top) || (!!window.opener) // If this page was opened by another assume it's in t a simulator
+  var isInAWDC = (window !== window.top) || (!!window.opener) // If this page was opened by another assume it's in a simulator
               || (window.navigator.userAgent.indexOf('Tableau') >= 0) // Or Tableau user agent
 
   if(isInAWDC) {
