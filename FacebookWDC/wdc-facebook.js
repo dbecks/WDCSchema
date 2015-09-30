@@ -1,15 +1,14 @@
 (function(window, $, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI) {
 
+  /////////////////////////////////////////////////////////
   // Facebook methods
+  /////////////////////////////////////////////////////////
+
   var DEFAULT_CLIENT_ID = '107253586284463'; // David Becker's App ID
   //var DEFAULT_CLIENT_ID = "475960835902299"; // This is Samm's personal app id
   //var DEFAULT_CLIENT_ID = "131331403865338"; // This is the the Tableau id that Francois put in
-  var passedInClientId = null;
 
-  var clientIdMatch = window.location.search.match(/state=([^&\/]*)/);
-  if(clientIdMatch) {
-    passedInClientId = clientIdMatch[1];
-  }
+  var DEFAULT_FB_VERSION = 'v2.3';
 
   var scope = [
     "user_friends",
@@ -63,14 +62,14 @@
     NOT_AUTHORIZED: 'not_authorized'
   };
 
-  function authenticate(clientId, scope) {
+  function authenticate(clientId, version, scope) {
 
     var oauthParams = {
-      response_type : 'code',
+      response_type : 'code', // Use code so it will return state back.
       client_id     : clientId,
       redirect_uri  : window.location.href, // Navigate back here
       scope         : scope,
-      state         : clientId
+      state         : JSON.stringify({ clientId: clientId, version: version })
     };
 
     var fbAuthURL = FACEBOOK_OAUTH + '?' + $.param(oauthParams);
@@ -78,12 +77,12 @@
     window.location.href = fbAuthURL;
   }
 
-  function getAccessToken(clientId, cb) {
+  function getAccessToken(clientId, version, cb) {
     FB.init({
       appId   : clientId,
       cookie  : false,  // enable cookies to allow the server to access the session
       xfbml   : false, // parse social plugins on this page is not needed
-      version : 'v2.3' // use version 2.3
+      version : version // use version 2.3
     });
 
     FB.getLoginStatus(function(fbLoginStatus) {
@@ -96,14 +95,13 @@
   }
 
   function fetchFBData(fbRestApi, params, cb) {
-    // TODO get this to work with response.cursors and offset
+    // TODO get this to work with response.cursors
     if(_(params).isFunction()) {
       cb = params;
       params = {};
     }
 
-    //params = $.extend({ access_token: tableau.password }, params);
-    var limit = params.limit;
+    var limit = params && params.limit;
 
     FB.api(fbRestApi, params, function(response) {
       if (response.error) {
@@ -111,127 +109,35 @@
         return;
       }
 
-      /*
-      if(response.data) {
-        var since, until, offset;
-        if(response.paging) {
-          if(response.paging.previous) {
-            sinceMatch =  response.paging.previous.match(/since=([^&]*)/);
-            since = sinceMatch && sinceMatch[0];
-          }
-
-
-          if(response.paging.next) {
-            var untilMatch = response.paging.next.match(/until=([^&]*)/);
-            until = untilMatch && untilMatch[1];
-
-            var offsetMatch = response.paging.next.match(/offset=([^&]*)/);
-            offset = offsetMatch && offsetMatch[1];
-          }
-
+      if(Array.isArray(response.data)) { // If there a list of responses, FB will have an array called "data"
+        var since;
+        if(response.paging && response.paging.previous) {
+          sinceMatch =  response.paging.previous.match(/since=([^&]*)/);
+          since = sinceMatch && sinceMatch[1];
         }
-
-        var numRecords = response.data.length;
-        if(0 < numRecords && numRecords < limit) {
-          if(params.paging && params.paging.until == until) { //If both until values are the same then we're at the end
-            cb(null, { data: [], paging: { since: since, until: until, offset: offset } });
-            return;
-          }
-
-          // get more data
-          var nestedParams = { until: until, limit: (limit - numRecords), offset: offset };
-          fetchFBData(fbRestApi, nestedParams, function(err, result) {
-            if(err) return cb(err);
-
-            var totalData = response.data.concat(result.data);
-            cb(null, { data: totalData, paging: { since: since, until: result.paging.until, offset: offset } });
-          });
-        } else {
-          cb(null, { data: response.data, paging: { since: since, until: until, offset: offset } });
-        }
-      } else {
-        cb(null, { data: [ response ] }); // The response is an object that has all of the data needed
-      }
-      */
-
-      if(response.data) {
 
         var numRecords = response.data.length;
         var next = response.paging && response.paging.next;
-        if(0 < numRecords && numRecords < limit && next) {
+        if(!limit || ((0 < numRecords && numRecords < limit)) && next) {
 
           // get more data
-          fetchFBData(next, function(err, result) {
+          fetchFBData(next, null, function(err, result) {
             if(err) return cb(err);
 
             var totalData = response.data.concat(result.data);
-            cb(null, { data: totalData });
+            cb(null, { data: totalData, since: since });
           });
         } else {
-          cb(null, { data: response.data });
+          cb(null, { data: response.data, since: since });
         }
-      } else {
+      } else { // If there is no array of "data" then the response must be the data
         cb(null, { data: [ response ] }); // The response is an object that has all of the data needed
       }
     });
   }
 
-
-  var documentReady = $.Deferred();
-  $(function() {
-    documentReady.resolve();
-  });
-
-  var context = TableauSchema.setup({
-    fetchPassword: function(cb) {
-      documentReady.then(function() {
-        if(passedInClientId) {
-          getAccessToken(passedInClientId, function(accessToken) {
-            if(accessToken) {
-              cb(accessToken);
-            } else {
-              renderElement(FacebookLogin, { onAccessToken: cb });
-            }
-          });
-        } else {
-          renderElement(FacebookLogin, { onAccessToken: cb });
-        }
-      });
-    },
-
-    fetchSetupData: function(cb) {
-      documentReady.then(function() {
-        renderElement(FacebookWDCApp, { onSubmit: cb });
-      });
-    },
-
-    fetchData: function(password, lastRecordToken, metaData, cb) {
-      if(!password) {
-        throw new Error('Missing password when fetching data')
-      }
-
-      fetchFBData(metaData.fbApi, { limit: metaData.maxObjectCount, until: lastRecordToken }, function(err, result) {
-        if(err) {
-          throw new Error(buildError(metaData.fbApi, err));
-        }
-
-        var lastRecordToken = result.paging && result.paging.since;
-
-        cb(result.data, lastRecordToken, false);
-      });
-    }
-  });
-
-  context.setConnectionName('Facebook');
-
-  // Set up action handlers
-
-  function renderElement(clazz, props) {
-    React.render(React.createElement(clazz, props), document.getElementById('appRoot'));
-  }
-
   /////////////////////////////////////////////////////////
-  // Components
+  // UI Components
   /////////////////////////////////////////////////////////
 
   var DOM = React.DOM;
@@ -252,7 +158,7 @@
 
   var FieldGroup = WDCSchemaUI.FieldGroup;
 
-  var fbAPIs = [
+  var fbAPIs = [ // Scraped from FB's website
     '',
     'accounts',
     'achievements',
@@ -322,12 +228,12 @@
 
   function buildError(requestPath, fbError) {
     /*
-     var fbError =  {
-       "message": "(#15) This method is only accessible to Games.",
-       "type": "OAuthException",
-       "code": 15
-     }
-     */
+    var fbError = {
+      "message": "(#15) This method is only accessible to Games.",
+      "type": "OAuthException",
+      "code": 15
+    }
+    */
 
     return 'Error calling "' + requestPath + '", ' + fbError.type + ' (' + fbError.code + '): ' + fbError.message;
   }
@@ -370,7 +276,8 @@
         )
       );
     },
-    //////////////////////////////////////////////////////
+
+    // Non-react methods
     onFbPageIdChange: function(e) {
       this.setState({ pageId: e.target.value });
     },
@@ -395,7 +302,8 @@
     fetchSample: function() {
       var _this = this;
       var api = this.getFBApi();
-      fetchFBData(api, { limit: this.state.sampleSize }, function(err, result) {
+      var password = this.props.authentication.password;
+      fetchFBData(api, { access_token: password, limit: this.state.sampleSize }, function(err, result) {
         if(err) {
           _this.setState({ sampleData: [], sampleDataString: '[]', errorMessage: buildError(api, err) });
         } else {
@@ -436,7 +344,7 @@
 
   var FacebookLogin = React.createClass({
     getInitialState: function () {
-      return { clientId: DEFAULT_CLIENT_ID, scope: DEFAULT_REQUESTED_SCOPE.split(',').join(', ') };
+      return { clientId: DEFAULT_CLIENT_ID, version: DEFAULT_FB_VERSION, scope: DEFAULT_REQUESTED_SCOPE.split(',').join(', ') };
     },
     render: function() {
       var warning = null;
@@ -452,33 +360,109 @@
         Panel.element(null,
           warning,
           Input.element({ type: 'text', value: this.state.clientId, onChange: this.onClientIdChange, label: 'Client ID' }),
+          Input.element({ type: 'text', value: this.state.version, onChange: this.onVersionChange, label: 'API Version' }),
           Input.element({ type: 'textarea', value: this.state.scope, onChange: this.onScopeChange, label: 'Scope' }),
           ButtonInput.element({ onClick: this.onClick, value: 'Login' })
         )
       );
     },
+
+    // Non-react methods
     onClick: function() {
       var _this = this;
 
-      getAccessToken(this.state.clientId, function(accessToken) {
+      getAccessToken(this.state.clientId, this.state.version, function(accessToken) {
         if(accessToken) {
           _this.props.onAccessToken(accessToken);
         } else {
-          authenticate(_this.state.clientId, _this.state.scope);
+          authenticate(_this.state.clientId, _this.state.version, _this.state.scope);
         }
       });
     },
     onClientIdChange: function(e) {
-      this.state.clientId = e.target.value;
+      this.setState({ clientId: e.target.value });
+    },
+    onVersionChange: function(e) {
+      this.setState({ version: e.target.value });
     },
     onScopeChange: function(e) {
-      this.state.scope = e.target.value.split(/\s,\s/).join(',');
+      this.setState({ scope: e.target.value.split(/\s,\s/).join(',') });
     }
   });
   FacebookLogin.element = React.createFactory(FacebookLogin);
 
-  window.FBWDC = {
-    authenticate: authenticate
-  };
+
+  //////////////////////////////////////////////////////////////
+  // Connect the UI to tableau
+  //////////////////////////////////////////////////////////////
+
+  // Helper method that sets up the react class as an element at the root of this app.
+  function renderElement(clazz, props) {
+    React.render(React.createElement(clazz, props), document.getElementById('appRoot'));
+  }
+
+  // Check to see if client ID was passed in
+  var urlState = null;
+  var stateMatch = window.location.search.match(/state=([^&/]*)/);
+  if(stateMatch) {
+    var urlState = JSON.parse(decodeURIComponent(stateMatch[1]));
+  }
+
+  var context = TableauSchema.setup({
+
+    fetchPassword: function(cb) {
+
+      function onAccessToken(accessToken) {
+        cb({ password: accessToken });
+      }
+
+      $(function() {
+        if(urlState) {
+          getAccessToken(urlState.clientId, urlState.version, function(accessToken) {
+            if(accessToken) {
+              onAccessToken(accessToken);
+            } else {
+              renderElement(FacebookLogin, { onAccessToken: onAccessToken });
+            }
+          });
+        } else {
+          renderElement(FacebookLogin, { onAccessToken: onAccessToken });
+        }
+      });
+
+    },
+
+    fetchSetupData: function(authentication, cb) {
+
+      $(function() {
+        renderElement(FacebookWDCApp, { authentication: authentication, onSubmit: cb });
+      });
+
+    },
+
+    fetchData: function(authentication, lastRecordToken, metaData, cb) {
+
+      if(!authentication.password) {
+        throw new Error('Missing password when fetching data')
+      }
+
+      var params = { access_token: authentication.password };
+      if(_.isFinite(parseInt(metaData.maxObjectCount))) params.limit = metaData.maxObjectCount;
+      if(lastRecordToken) params.limit = lastRecordToken;
+
+      fetchFBData(metaData.fbApi, params, function(err, result) {
+        if(err) {
+          throw new Error(buildError(metaData.fbApi, err));
+        }
+
+        var lastRecordToken = result.since;
+
+        cb(result.data, lastRecordToken, false);
+      });
+
+    }
+  });
+
+  context.setConnectionName('Facebook');
 
 })(window, jQuery, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI);

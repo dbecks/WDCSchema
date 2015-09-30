@@ -3,8 +3,9 @@
 
   function functionToPromise(fn, ctx) {
     var promise = $.Deferred();
+    var args = _.toArray(arguments).slice(2);
     if (fn) {
-      fn.call(ctx, promise.resolve);
+      fn.apply(ctx, args.concat([promise.resolve]));
     } else {
       promise.resolve();
     }
@@ -14,6 +15,7 @@
   function setup(config) {
     var _schema, _metaData, _connectionName;
     var _password = tableau.password;
+    var _username = tableau.username;
 
     if(!config.fetchData) {
       throw new Error('setup requires a fetchData(password, lastRecordToken, data, cb) function.');
@@ -43,9 +45,14 @@
         // Fetch password information
         operationsPromiseChain = operationsPromiseChain
           .then(function() { return passwordPromise; })
-          .then(function(password) {
-            if(_(password).isString()) password = _password;
-            tableau.password = password;
+          .then(function(authentication) {
+            authentication = authentication || {};
+
+            if(_.isString(authentication.password)) _password = authentication.password;
+            if(_.isString(authentication.username)) _username = authentication.username;
+
+            tableau.password = _password;
+            tableau.username = _username;
           })
           .then(function()  { tableau.initCallback(); });
       }
@@ -53,7 +60,7 @@
       if(tableau.phase === tableau.phaseEnum.interactivePhase) {
         // fetch additional information if more information is needed.
         operationsPromiseChain
-          .then(function() { return functionToPromise(config.fetchSetupData, config); })
+          .then(function() { return functionToPromise(config.fetchSetupData, config, { password: _password, username: _username }); })
           .then(function(schema, metaData) {
             if(schema == null) schema = _schema;
             if(metaData == null) metaData = _metaData;
@@ -80,8 +87,13 @@
     connector.getTableData = function(lastRecordToken) {
       var connectionData = JSON.parse(tableau.connectionData);
 
+      var authentication = {
+        username: tableau.username,
+        password: tableau.password
+      };
+
       // TODO: Create a way to pass in errors or pass in progress if reading in a lot of data, maybe give a deffered? or is that too complicated?
-      config.fetchData(tableau.password, lastRecordToken, connectionData.metaData, function(resultData, lastRecordToken) {
+      config.fetchData(authentication, lastRecordToken, connectionData.metaData, function(resultData, lastRecordToken) {
         var tableData = WDCSchema.convertToTable(resultData, connectionData.schema);
 
         tableau.dataCallback(tableData, lastRecordToken, false);
@@ -98,16 +110,6 @@
       setConnectionName: function(name) {
         _connectionName = name;
         return context; // for chaining
-      },
-      setConnectionData: function(metaData) {
-        _metaData = metaData;
-        return context; // for chaining
-      },
-      getConnectionData: function() {
-        if(typeof _metaData !== 'object') return _metaData;
-
-        // Return a deep clone to keep _data immutable
-        return $.extend(true, Array.isArray(_metaData) ? [] : {}, data);
       }
     };
 

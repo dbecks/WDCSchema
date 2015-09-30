@@ -1,16 +1,8 @@
-/*
-TODO:
-X allow a way to set type for array to any other type
-X create method that takes input JSON and schema to a flat table
-X create method that takes schema and generates the header
-- hook up to an API
-
-BONUS:
-X pass in a JSON to generate the initial schema
-- create a way to join multiple requests to create the table
- */
 
 (function(ns, $, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI) {
+
+  ///////////////////////////////////////////////////////////////////
+  // Components
 
   var DOM        = React.DOM;
   var Field      = WDCSchemaUI.Field;
@@ -41,7 +33,8 @@ X pass in a JSON to generate the initial schema
     componentWillReceiveProps: function(nextProps) {
       this.setState(this.propsToState(nextProps));
     },
-    ////////////////////////////////////////////
+
+    // Non-react methods
     propsToState: function(props) {
       var previewText = '';
       var errorMessage = props.errorMessage;
@@ -82,7 +75,8 @@ X pass in a JSON to generate the initial schema
         }
       });
     },
-    ////////////////////////////////////////////
+
+    // Non-react methods
     propsToState: function(props) {
       var previewText = '';
       var previewTable = [];
@@ -103,7 +97,6 @@ X pass in a JSON to generate the initial schema
 
   function mapObject(obj, iteratee, ctx) { return _.chain(obj).mapObject(iteratee, ctx).values().value(); }
   var Table = ReactBootstrap.Table;
-  var Panel = ReactBootstrap.Panel;
 
   var tableRowKey = 1;
   var TablePreview = React.createClass({
@@ -125,7 +118,7 @@ X pass in a JSON to generate the initial schema
       if(headerName.length === 0) return Well.element(null, 'Cannot create table');
       if(this.props.errorMessage) return Well.element(null, this.props.errorMessage)
 
-      var tableData = state.tableData.map(function(row) {
+      var tableData = state.tableData.slice(0, TablePreview.MAX_ROWS).map(function(row) {
         return DOM.tr({ key: tableRowKey++ },
           headerName.map(function(headerName) {
             var tableCellValue = row[headerName];
@@ -134,10 +127,10 @@ X pass in a JSON to generate the initial schema
         )
       });
 
-      if(this.state.isUsingSampleSize) {
+      if(state.tableData.length > tableData.length) {
         tableData.push(
           DOM.tr({ key: tableRowKey++ },
-            DOM.td({ colSpan: headerName.length }, 'Not all data displayed')
+            DOM.td({ colSpan: headerName.length }, 'Not all data displayed.  Only displaying the first ' + TablePreview.MAX_ROWS + ' rows for performance.')
           )
         );
       }
@@ -157,18 +150,13 @@ X pass in a JSON to generate the initial schema
       );
     },
 
+    // Non-react methods
     propsToState: function(props) {
       var data = props.data;
-      var isUsingSampleSize = false;
-      if(Array.isArray(data) && !_(parseInt(props.sampleSize)).isNaN()) {
-        isUsingSampleSize = true;
-        data = data.slice(0, props.sampleSize)
-      }
 
       return {
         headers: WDCSchema.convertToTableHeaders(props.schema),
-        tableData: WDCSchema.convertToTable(data, props.schema),
-        isUsingSampleSize: isUsingSampleSize
+        tableData: WDCSchema.convertToTable(data, props.schema)
       };
     },
     notifyState: function(state) {
@@ -177,16 +165,23 @@ X pass in a JSON to generate the initial schema
     }
   });
   TablePreview.element = React.createFactory(TablePreview);
+  TablePreview.MAX_ROWS = 100;
 
   var FetchData = React.createClass({
     render: function() {
       var submitButton = Button.element({ onClick: this.fetchData }, 'Fetch Data');
 
       return (
-        Input.element({ type: 'text', ref: 'jsonAddress', buttonAfter: submitButton, placeholder: 'Address to JSON' })
+        Input.element({ type: 'text', ref: 'jsonAddress', onKeyPress: this.onKeyPress, buttonAfter: submitButton, placeholder: 'Address to JSON' })
       );
     },
 
+    // Non-react methods
+    onKeyPress: function(e) {
+      if (e.key === 'Enter') {
+        this.fetchData();
+      }
+    },
     fetchData: function() {
       if(!this.props.onData) return;
 
@@ -194,7 +189,15 @@ X pass in a JSON to generate the initial schema
 
       $.get(this.refs.jsonAddress.getValue())
         .then(function(responseBody) {
-          if(responseBody.data) { // Should I expose this?
+          if(typeof responseBody !== 'object') {
+            try {
+              responseBody = JSON.parse(responseBody);
+            } catch(e) {
+              // Best effort, do nothing if fails
+            }
+          }
+
+          if(responseBody.data) { // TODO: Should I expose this?
             console.log('Ajax full response:');
             console.log(responseBody);
 
@@ -228,29 +231,26 @@ X pass in a JSON to generate the initial schema
 
       return (
         Grid.element({ className: 'full-height', style: { paddingTop: '10px', paddingBottom: '10px' }, fluid: true },
-          Row.element({ style: { height: '80%' } },
-            Col.element({ md: 6, className: 'fill-height' },
-              FetchData.element({ onData: this.updateData }),
-              Input.element({ type: 'textarea', style: textAreaStyle, onChange: this.onDataStringChange, value: this.state.dataString }),
-              DOM.div({ className: 'form-inline' },
-                Button.element({ onClick: this.generateSchema}, 'Generate the Schema'),
-                Input.element({
-                  type: 'number', label: 'Sample Size', onChange: this.onSampleSizeChange,
-                  value: this.state.sampleSize
-                })
-              )
-            ),
-            Col.element({ md: 6, className: 'fill-height' },
-              FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
+          Col.element({ md: 4, className: 'fill-height' },
+            FetchData.element({ onData: this.updateData }),
+            Input.element({ type: 'textarea', style: textAreaStyle, onChange: this.onDataStringChange, value: this.state.dataString }),
+            DOM.div({ className: 'form-inline' },
+              Button.element({ onClick: this.generateSchema}, 'Generate the Schema')
+              //Sample Size is just confusing
+              //Input.element({
+              //  type: 'number', label: 'Sample Size', onChange: this.onSampleSizeChange,
+              //  value: this.state.sampleSize
+              //})
             )
           ),
-          Row.element({},
-            Col.element({ md: 12, className: 'fill-height' },
-              submitButton,
-              TablePreview.element(this.state)
-              //TableHeaderPreview.element(this.state)
-              //TableDataPreview.element(this.state)
-            )
+          Col.element({ md: 4, className: 'fill-height' },
+            FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
+          ),
+          Col.element({ md: 4, className: 'fill-height' },
+            submitButton,
+            TablePreview.element(this.state)
+            //TableHeaderPreview.element(this.state),
+            //TableDataPreview.element(this.state)
           )
         )
       );
@@ -310,20 +310,22 @@ X pass in a JSON to generate the initial schema
               || (window.navigator.userAgent.indexOf('Tableau') >= 0) // Or Tableau user agent
 
   if(isInAWDC) {
-    TableauSchema.setup({
-      fetchSetupData: function (cb) {
-        $(function () {
-          React.render(
-            React.createElement(SchemaPlaygroundApp, {onSubmit: cb}),
-            document.getElementById('fieldGroup')
-          );
-        });
-      },
+    TableauSchema
+      .setup({
+        fetchSetupData: function (cb) {
+          $(function () {
+            React.render(
+              React.createElement(SchemaPlaygroundApp, { onSubmit: cb }),
+              document.getElementById('fieldGroup')
+            );
+          });
+        },
 
-      fetchData: function (password, lastRecordToken, data, cb) {
-        cb(data);
-      }
-    }).setConnectionName('Playground')
+        fetchData: function (authentication, lastRecordToken, data, cb) {
+          cb(data);
+        }
+      })
+      .setConnectionName('Playground')
   } else {
     function updateGlobalFieldGroup(fieldGroup) {
       ns.fieldGroup = fieldGroup;
@@ -338,7 +340,6 @@ X pass in a JSON to generate the initial schema
     };
 
     $(function() {
-      //ns.fieldGroup = new FieldGroupElm($('body'));
       React.render(
         React.createElement(SchemaPlaygroundApp, { onSchemaChange: updateGlobalFieldGroup, onTableChange: updateGlobalDataTable }),
         document.getElementById('fieldGroup')
