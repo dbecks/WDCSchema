@@ -1,5 +1,15 @@
 (function(window, $, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI) {
 
+  /*
+  var urlState = null;
+  var stateMatch = window.location.search.match(/state=([^&/]*)/);
+  if(stateMatch) {
+    window.location.hash = stateMatch[1];
+    window.location.search = '';
+    return;
+  }
+  */
+
   /////////////////////////////////////////////////////////
   // Facebook methods
   /////////////////////////////////////////////////////////
@@ -62,14 +72,14 @@
     NOT_AUTHORIZED: 'not_authorized'
   };
 
-  function authenticate(clientId, version, scope) {
+  function authenticate(scope) {
 
     var oauthParams = {
-      response_type : 'code', // Use code so it will return state back.
-      client_id     : clientId,
+      response_type : 'token', // Use "code" to return state back.
+      client_id     : DEFAULT_CLIENT_ID,
       redirect_uri  : window.location.href, // Navigate back here
       scope         : scope,
-      state         : JSON.stringify({ clientId: clientId, version: version })
+      //state         : JSON.stringify({ clientId: clientId, version: version })
     };
 
     var fbAuthURL = FACEBOOK_OAUTH + '?' + $.param(oauthParams);
@@ -77,12 +87,12 @@
     window.location.href = fbAuthURL;
   }
 
-  function getAccessToken(clientId, version, cb) {
+  function getAccessToken(cb) {
     FB.init({
-      appId   : clientId,
+      appId   : DEFAULT_CLIENT_ID,
       cookie  : false,  // enable cookies to allow the server to access the session
       xfbml   : false, // parse social plugins on this page is not needed
-      version : version // use version 2.3
+      version : DEFAULT_FB_VERSION // use version 2.3
     });
 
     FB.getLoginStatus(function(fbLoginStatus) {
@@ -101,7 +111,11 @@
       params = {};
     }
 
+    if(!params) params = {};
+
     var limit = params && params.limit;
+
+    params.limit = null;
 
     FB.api(fbRestApi, params, function(response) {
       if (response.error) {
@@ -118,10 +132,15 @@
 
         var numRecords = response.data.length;
         var next = response.paging && response.paging.next;
-        if(!limit || ((0 < numRecords && numRecords < limit)) && next) {
+        if((0 < numRecords && (numRecords < limit || !limit)) && next) {
+
+          var newLimit = null;
+          if(_.isFinite(limit)) {
+            newLimit = limit - numRecords;
+          }
 
           // get more data
-          fetchFBData(next, null, function(err, result) {
+          fetchFBData(next, { limit: newLimit }, function(err, result) {
             if(err) return cb(err);
 
             var totalData = response.data.concat(result.data);
@@ -241,7 +260,7 @@
   var FacebookWDCApp = React.createClass({
     getInitialState: function () {
       return {
-        pageId: '/me', edgeApi: '', maxObjectCount: 5000,
+        pageId: '/me', edgeApi: '', maxObjectCount: 100000, query: '',
         sampleSize: 10, sampleData: [], sampleDataString: '[]',
         schema: [], errorMessage: ''
       };
@@ -251,9 +270,15 @@
       return (
         Grid.element({ fluid: true },
           Row.element(null,
-            Input.element({ type: 'text', label: 'Please select the page ID', onChange: this.onFbPageIdChange, value: this.state.pageId }),
-            FacebookAPIEdgeSelect.element({ label: 'Please select your Facebook API', onChange: this.onFbApiEdgeChange, value: this.state.edgeApi }),
-            Input.element({ type: 'number', label: 'Max number of items', onChange: this.onMaxObjectCountChange, value: this.state.maxObjectCount })
+            Col.element({ md: 3 },
+              Input.element({ type: 'text', label: 'Page ID', onChange: this.onFbPageIdChange, value: this.state.pageId })
+            ),
+            Col.element({ md: 3 },
+              FacebookAPIEdgeSelect.element({ label: 'Edge API', onChange: this.onFbApiEdgeChange, value: this.state.edgeApi })
+            ),
+            Col.element({ md: 6 }, // TODO: Convert this to something that has key and values separately
+              Input.element({ type: 'text', label: 'Query Parameters', onChange: this.onQueryChange, value: this.state.query })
+            )
           ),
           Row.element(null,
             Col.element({ md: 6 },
@@ -284,6 +309,9 @@
     onFbApiEdgeChange: function(e) {
       this.setState({ edgeApi: e.target.value });
     },
+    onQueryChange: function(e) {
+      this.setState({ query: e.target.value });
+    },
     onMaxObjectCountChange: function(e) {
       this.setState({ maxObjectCount: e.target.value });
     },
@@ -293,9 +321,11 @@
     getFBApi: function() {
       var pageId = this.state.pageId;
       var edgeApi = this.state.edgeApi;
+      var query = this.state.query;
 
       var fbRestApi = pageId;
       if(edgeApi) fbRestApi += '/' + edgeApi;
+      if(query) fbRestApi += '?' + query; // TODO encode, maybe pass in as an object
 
       return fbRestApi;
     },
@@ -344,7 +374,11 @@
 
   var FacebookLogin = React.createClass({
     getInitialState: function () {
-      return { clientId: DEFAULT_CLIENT_ID, version: DEFAULT_FB_VERSION, scope: DEFAULT_REQUESTED_SCOPE.split(',').join(', ') };
+      return {
+        //clientId: this.props.clientId || DEFAULT_CLIENT_ID,
+        //version: this.props.version || DEFAULT_FB_VERSION,
+        scope: DEFAULT_REQUESTED_SCOPE.split(',').join(', ')
+      };
     },
     render: function() {
       var warning = null;
@@ -359,8 +393,8 @@
       return (
         Panel.element(null,
           warning,
-          Input.element({ type: 'text', value: this.state.clientId, onChange: this.onClientIdChange, label: 'Client ID' }),
-          Input.element({ type: 'text', value: this.state.version, onChange: this.onVersionChange, label: 'API Version' }),
+          //Input.element({ type: 'text', value: this.state.clientId, onChange: this.onClientIdChange, label: 'Client ID' }),
+          //Input.element({ type: 'text', value: this.state.version, onChange: this.onVersionChange, label: 'API Version' }),
           Input.element({ type: 'textarea', value: this.state.scope, onChange: this.onScopeChange, label: 'Scope' }),
           ButtonInput.element({ onClick: this.onClick, value: 'Login' })
         )
@@ -371,11 +405,11 @@
     onClick: function() {
       var _this = this;
 
-      getAccessToken(this.state.clientId, this.state.version, function(accessToken) {
+      getAccessToken(function(accessToken) {
         if(accessToken) {
           _this.props.onAccessToken(accessToken);
         } else {
-          authenticate(_this.state.clientId, _this.state.version, _this.state.scope);
+          authenticate(_this.state.scope);
         }
       });
     },
@@ -401,12 +435,15 @@
     React.render(React.createElement(clazz, props), document.getElementById('appRoot'));
   }
 
+  /*
   // Check to see if client ID was passed in
   var urlState = null;
-  var stateMatch = window.location.search.match(/state=([^&/]*)/);
-  if(stateMatch) {
-    var urlState = JSON.parse(decodeURIComponent(stateMatch[1]));
+  try{
+    urlState = JSON.parse(decodeURIComponent(window.location.hash));
+  } catch(e) {
+    // Do nothing, this is best effort
   }
+  */
 
   var context = TableauSchema.setup({
 
@@ -417,17 +454,17 @@
       }
 
       $(function() {
-        if(urlState) {
-          getAccessToken(urlState.clientId, urlState.version, function(accessToken) {
+        //if(urlState) {
+          getAccessToken(function(accessToken) {
             if(accessToken) {
               onAccessToken(accessToken);
             } else {
               renderElement(FacebookLogin, { onAccessToken: onAccessToken });
             }
           });
-        } else {
-          renderElement(FacebookLogin, { onAccessToken: onAccessToken });
-        }
+        //} else {
+        //  renderElement(FacebookLogin, { onAccessToken: onAccessToken });
+        //}
       });
 
     },
