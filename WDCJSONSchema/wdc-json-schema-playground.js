@@ -266,7 +266,7 @@
     },
     generateSchema: function() {
       var schema = ns.WDCSchema.generateSchema(this.state.data, this.state.sampleSize || SchemaPlaygroundApp.DEFAULT_SAMPLE_SIZE);
-      this.setState({ schema: schema });
+      this.updateSchema(schema);
     },
     onDataStringChange: function(event) {
       this.state.updateDataString(event.target.value);
@@ -306,10 +306,7 @@
 
   ////////////////////////////////////////////////////////////
 
-  var isInAWDC = (window !== window.top) || (!!window.opener) // If this page was opened by another assume it's in a simulator
-              || (window.navigator.userAgent.indexOf('Tableau') >= 0) // Or Tableau user agent
-
-  if(isInAWDC) {
+  if(TableauSchema.isInWDC) {
     TableauSchema
       .setup({
         fetchSetupData: function (cb) {
