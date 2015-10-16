@@ -15,11 +15,19 @@
   function buildObjectKey(fieldName, childKey) { return (fieldName + '.' + childKey); }
   function buildArrayKey(key) { return (key + '[]'); }
   function newEmptyTable() { return [{}]; }
+  function isUndefined(x) { return x === void 0; }
+  function isObjectOrFunction(x) {
+    var type = typeof x;
+    return type === 'object' || type === 'function'
+  }
 
   // Helper function needed because underscore's map and forEach methods use duck-typing
   // to treat objects with a "length" property like an array
   function mapObject(obj, iteratee, ctx) { return _.chain(obj).mapObject(iteratee, ctx).values().value(); }
 
+  // Joins tables.  A table is an array of flat objects that contain all of the same object keys
+  // @param tables... - Pass in any number of tables
+  // @return Array - returns an array of flat objects all containing the same keys
   function join() {
     var tables = _.toArray(arguments);
     var joinedTable = newEmptyTable();
@@ -36,88 +44,75 @@
 
     return joinedTable;
   }
+
+  // @param tableArrays... - pass in any number of arrays of tables
+  // @return Array - returns an array of flat objects all containing the same keys
   join.multiple = function() { return join.apply(null, _.flatten(arguments, 1)); };
 
+  // @param schema - a JSON schema
+  // @return object - returns an object that maps Tableau field name to field type
   function convertToTableHeaders(schema) {
-    function joinHeaderKey(prefix, key) { return ((prefix ? (prefix + '.') : '') + key); }
+    var headers = {};
 
-    // Internal recursive function
-    function _convertToTableHeaders(prefix, schema) {
-      var headers = {};
+    schema.forEach(function(field) {
+      var type = field.type;
+      var name = field.name;
 
-      schema.forEach(function(field) {
-        var type = field.type;
-        var name = field.name;
+      if(type === FIELD_TYPE.array) {
+        type = field.arrayType;
+        name = buildArrayKey(name);
+      }
 
-        if(type === FIELD_TYPE.array) {
-          type = field.arrayType;
-          name = buildArrayKey(name);
-        }
+      if(type === FIELD_TYPE.object && field.subFields) {
 
-        if(type === FIELD_TYPE.object && field.subFields) {
+        var childHeaders = convertToTableHeaders(field.subFields);
+        mapObject(childHeaders, function(type, childKey) {
+          headers[buildObjectKey(name, childKey)] = type;
+        });
 
-          var childHeaders = convertToTableHeaders(field.subFields);
-          mapObject(childHeaders, function(type, childKey) {
-            headers[buildObjectKey(name, childKey)] = type;
-          });
+      } else {
+        headers[name] = type;
+      }
+    });
 
-        } else {
-          headers[name] = type;
-        }
-      });
-
-      return headers;
-    }
-
-    return _convertToTableHeaders('', schema);
+    return headers;
   }
 
-  function convertToTable(data, schema) {
-
-    function parseObjectForTable(obj, fieldList) {
-      if(fieldList.length === 0) return newEmptyTable(); // Return an empty table if no field list is given
-
-      var tables = fieldList.map(function(field) {
-        return parseField(obj, field);
-      });
-      return join.multiple(tables);
-    }
-
-    function addObjectFieldNameToRow(fieldName, row) {
+  var convertToTableHelper = {
+    joinMultiple: join.multiple,
+    addObjectFieldNameToRow: function(fieldName, row) {
       var newRow = {};
       mapObject(row, function(val, key) {
         newRow[buildObjectKey(fieldName, key)] = val;
       });
       return newRow;
-    }
-
-    function parseObjectForTableFromField(fieldName, obj, fieldList) {
-      var objTable = parseObjectForTable(obj, fieldList);
+    },
+    parseObjectForTableFromField: function(fieldName, obj, fieldList) {
+      var objTable = convertToTableHelper.parseObjectForTable(obj, fieldList);
 
       return objTable.map(function(row) {
-        return addObjectFieldNameToRow(fieldName, row);
+        return convertToTableHelper.addObjectFieldNameToRow(fieldName, row);
       });
-    }
-
-    function parseField(rowInput, field) {
+    },
+    parseField: function(rowInput, field) {
       var table = [];
-      var value = (_(rowInput).isNull() || _(rowInput).isUndefined()) ? null : rowInput[field.name];
-      if(_(value).isUndefined()) value = null;
+      var value = (rowInput == null) ? null : rowInput[field.name];
+      if(isUndefined(value)) value = null;
 
       if(field.type === FIELD_TYPE.object) {
 
-        table = parseObjectForTableFromField(field.name, value, field.subFields);
+        table = convertToTableHelper.parseObjectForTableFromField(field.name, value, field.subFields);
 
       } else if(field.type === FIELD_TYPE.array) {
 
         var columnKey = buildArrayKey(field.name);
-        var fieldValuesList = (_(value).isArray() && value.length > 0) ? value : [ null ];
+        var fieldValuesList = (Array.isArray(value) && value.length > 0) ? value : [ null ];
         // TODO: Should fieldValuesList be flattened? I doubt it.
 
         if(field.arrayType === FIELD_TYPE.object) {
 
           table = _.flatten(fieldValuesList.map(function(fieldObj) {
-            return parseObjectForTableFromField(columnKey, fieldObj, field.subFields);
+            return convertToTableHelper.parseObjectForTableFromField(columnKey, fieldObj, field.subFields);
           }));
 
         } else {
@@ -130,40 +125,56 @@
 
       } else {
 
-        if(_(value).isObject() || _(value).isFunction()) value = null;
+        if(isObjectOrFunction(value)) value = null;
 
         table.push( _.object([[ field.name, value ]]) );
 
       }
 
       return table;
-    }
+    },
+    parseObjectForTable: function(obj, fieldList) {
+      if(fieldList.length === 0) return newEmptyTable(); // Return an empty table if no field list is given
 
+      var tables = fieldList.map(function(field) {
+        return convertToTableHelper.parseField(obj, field);
+      });
+      return convertToTableHelper.joinMultiple(tables);
+    }
+  }
+
+  // Given the data and a schema, this method generates a table that can be passed into the Tableau WDC
+  // @param data - a JSON object of data
+  // @param schema - a JSON schema
+  // @return object - returns a table
+  function convertToTable(data, schema) {
     return _.flatten([].concat(data).map(function(rowInput) {
-      return parseObjectForTable(rowInput, schema);
+      return convertToTableHelper.parseObjectForTable(rowInput, schema);
     }));
   }
 
-  // TODO: Finish this
-  var SAMPLE_SIZE = 10;
-  function generateSchema(data, sampleSize) {
-    sampleSize = sampleSize || SAMPLE_SIZE;
 
-    function estimateType(val) {
+  function SchemaGenerator(sampleSize) {
+    this.sampleSize = sampleSize || SchemaGenerator.SAMPLE_SIZE;
+  }
+
+  // Static variables/methods
+  _.extend(SchemaGenerator, {
+    SAMPLE_SIZE: 10,
+    estimateType: function(val) {
       switch(typeof val) {
         case 'string':
-          if(_(Date.parse(val)).isNaN()) return FIELD_TYPE.string;
+          if(isNaN(Date.parse(val))) return FIELD_TYPE.string;
           return (val.indexOf(':') >= 0) ? FIELD_TYPE.datetime : FIELD_TYPE.date;
         case 'object':
-          return _(val).isArray() ? FIELD_TYPE.array : FIELD_TYPE.object;
+          return Array.isArray(val) ? FIELD_TYPE.array : FIELD_TYPE.object;
         case 'boolean':
           return FIELD_TYPE.bool;
         case 'number':
           return (val.toString().indexOf('.') >= 0) ? FIELD_TYPE.float : FIELD_TYPE.int;
       }
-    }
-
-    function bestTypeEstimate(types) {
+    },
+    bestTypeEstimate: function(types) {
       var uniqTypes = _.uniq(types);
       switch(uniqTypes.length) {
         case 0: return; // If there no types then leave it empty for the user to fill in
@@ -185,40 +196,53 @@
           break;
       }
     }
+  });
 
-    function buildField(val, key) {
-      var type = estimateType(val);
+  // instance methods
+  _.extend(SchemaGenerator.prototype, {
+    generateSchemaFromData: function(dataArray) {
+      var _this = this;
+      var fieldSchemas = _.sample(dataArray, this.sampleSize).map(function(obj){
+        return _.compact(mapObject(obj, _this.buildField, _this));
+      });
+
+      return this.bestSchemaEstimate(fieldSchemas);
+    },
+    buildField: function(val, key) {
+      var type = SchemaGenerator.estimateType(val);
       if(!type) return null; // if a type couldn't be determined, don't create a field, let the user add it
 
       var field = { name: key, type: type };
 
       if(type === FIELD_TYPE.array) {
-        var sampleArray = _.sample(val, sampleSize);
-        var types = sampleArray.map(estimateType);
-        field.arrayType = bestTypeEstimate(types);
+        var sampleArray = _.sample(val, this.sampleSize);
+        var types = sampleArray.map(SchemaGenerator.estimateType);
+        field.arrayType = SchemaGenerator.bestTypeEstimate(types);
 
         if(!field.arrayType) return null;
 
         if(field.arrayType === FIELD_TYPE.object) {
-          field.subFields = generateSchema(sampleArray, sampleSize);
+          field.subFields = this.generateSchemaFromData(sampleArray);
         }
       } else if(type === FIELD_TYPE.object) {
-        field.subFields = mapObject(val, buildField);
+        field.subFields = mapObject(val, this.buildField, this);
       }
 
       return field;
-    }
-
-    function bestSchemaEstimate(schemas) {
+    },
+    bestSchemaEstimate: function(schemas) {
+      var _this = this;
       var fieldMap = _.groupBy(_.flatten(schemas), function(field) { return field.name; });
       return _.compact(mapObject(fieldMap, function(fields, name) {
-        var estimatedType = bestTypeEstimate(fields.map(function(field) { return field.type; }));
+        var fieldTypes = fields.map(function(field) { return field.type; });
+        var estimatedType = SchemaGenerator.bestTypeEstimate(fieldTypes);
         var isArrayType = (estimatedType === FIELD_TYPE.array);
 
         var field = { name: name };
 
         if(isArrayType) {
-          estimatedType = bestTypeEstimate(fields.map(function(field) { return field.arrayType; }));
+          var arrayTypes = fields.map(function(field) { return field.arrayType; });
+          estimatedType = SchemaGenerator.bestTypeEstimate(arrayTypes);
 
           field.type = FIELD_TYPE.array;
           field.arrayType = estimatedType;
@@ -229,56 +253,29 @@
         if(!estimatedType) return null; // If there is no estimated type then we can't create a field
 
         if(estimatedType === FIELD_TYPE.object) {
-          // TODO: Validate subField schemas against each other...
 
-          field.subFields = bestSchemaEstimate(fields.map(function(field) { return field.subFields }));
+          var subFeildSchemas = fields.map(function(field) { return field.subFields });
+          field.subFields = _this.bestSchemaEstimate(subFeildSchemas);
           if(field.subFields.length === 0) return null;
+
         }
 
         return field;
       }));
     }
+  });
 
-    var fieldSchemas = _.sample([].concat(data), sampleSize).map(function(obj){
-      return _.compact(mapObject(obj, buildField));
-    });
-
-    return bestSchemaEstimate(fieldSchemas);
+  // @param data[object] - array of objects of data to parse to generate the schema
+  // @param sampleSize[number](default=10) - max number of items to check in the data and nested arrays
+  function generateSchema(data, sampleSize) {
+    var schemaGenerator = new SchemaGenerator(sampleSize);
+    var arrayData = [].concat(data);
+    return schemaGenerator.generateSchemaFromData(arrayData);
   }
 
   function validateSchema(schema) {
     //TODO: Verify that all fields have a non-empty name? OR create a field with an empty name when creating a field
     //TODO: Verify that no values have the same name.
-  }
-
-  function doItAll(schema, pageFetcher) {
-    var connector = tableau.makeConnector();
-
-    connector.getColumnHeaders = function() {
-      var headers = convertToTableHeaders(schema);
-      var fieldNames = _.keys(headers);
-      var fieldTypes = _.values(headers);
-      tableau.headersCallback(fieldNames, fieldTypes);
-    };
-
-    connector.getTableData = function(lastRecordToken) {
-      pageFetcher(
-        lastRecordToken,
-        function(data, lastRecordToken, moreData) {
-          try {
-            var rows = convertToTable(data, schema);
-            tableau.dataCallback(data, lastRecordToken, moreData);
-          } catch(e) {
-            tableau.abortWithError(e.message);
-          }
-        },
-        tableau.abortWithError
-      );
-    };
-
-    tableau.registerConnector(connector);
-
-    return connector;
   }
 
   window.WDCSchema= {
