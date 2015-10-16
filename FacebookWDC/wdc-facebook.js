@@ -1,23 +1,10 @@
 (function(window, $, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI) {
 
-  /*
-  var urlState = null;
-  var stateMatch = window.location.search.match(/state=([^&/]*)/);
-  if(stateMatch) {
-    window.location.hash = stateMatch[1];
-    window.location.search = '';
-    return;
-  }
-  */
-
   /////////////////////////////////////////////////////////
   // Facebook methods
   /////////////////////////////////////////////////////////
 
-  var DEFAULT_CLIENT_ID = '107253586284463'; // David Becker's App ID
-  //var DEFAULT_CLIENT_ID = "475960835902299"; // This is Samm's personal app id
-  //var DEFAULT_CLIENT_ID = "131331403865338"; // This is the the Tableau id that Francois put in
-
+  var DEFAULT_CLIENT_ID = '107253586284463';
   var DEFAULT_FB_VERSION = 'v2.3';
 
   var scope = [
@@ -78,8 +65,7 @@
       response_type : 'token', // Use "code" to return state back.
       client_id     : DEFAULT_CLIENT_ID,
       redirect_uri  : window.location.href, // Navigate back here
-      scope         : scope,
-      //state         : JSON.stringify({ clientId: clientId, version: version })
+      scope         : scope || DEFAULT_REQUESTED_SCOPE
     };
 
     var fbAuthURL = FACEBOOK_OAUTH + '?' + $.param(oauthParams);
@@ -87,13 +73,22 @@
     window.location.href = fbAuthURL;
   }
 
-  function getAccessToken(cb) {
+  var initialized = false;
+  function fbInit() {
+    if(initialized) return;
+
     FB.init({
       appId   : DEFAULT_CLIENT_ID,
       cookie  : false,  // enable cookies to allow the server to access the session
       xfbml   : false, // parse social plugins on this page is not needed
       version : DEFAULT_FB_VERSION // use version 2.3
     });
+
+    initialized = true;
+  }
+
+  function getAccessToken(cb) {
+    fbInit();
 
     FB.getLoginStatus(function(fbLoginStatus) {
       if(fbLoginStatus && (fbLoginStatus.status === FB_AUTH_STATUS.CONNECTED) && fbLoginStatus.authResponse) {
@@ -105,6 +100,8 @@
   }
 
   function fetchFBData(fbRestApi, params, cb) {
+    fbInit();
+
     // TODO get this to work with response.cursors
     if(_(params).isFunction()) {
       cb = params;
@@ -114,6 +111,7 @@
     if(!params) params = {};
 
     var limit = params && params.limit;
+    var accessToken = params.access_token;
 
     params.limit = null;
 
@@ -140,7 +138,7 @@
           }
 
           // get more data
-          fetchFBData(next, { limit: newLimit }, function(err, result) {
+          fetchFBData(next, { limit: newLimit, access_token: accessToken }, function(err, result) {
             if(err) return cb(err);
 
             var totalData = response.data.concat(result.data);
@@ -226,7 +224,7 @@
     'questions',
     'scores',
     'subscribers',
-    'subscribedto'
+    'subscribedto',
   ];
 
   var FacebookAPIEdgeSelect = React.createClass({
@@ -268,34 +266,40 @@
     render: function () {
 
       return (
-        Grid.element({ fluid: true },
-          Row.element(null,
-            Col.element({ md: 3 },
-              Input.element({ type: 'text', label: 'Page ID', onChange: this.onFbPageIdChange, value: this.state.pageId })
-            ),
-            Col.element({ md: 3 },
-              FacebookAPIEdgeSelect.element({ label: 'Edge API', onChange: this.onFbApiEdgeChange, value: this.state.edgeApi })
-            ),
-            Col.element({ md: 6 }, // TODO: Convert this to something that has key and values separately
-              Input.element({ type: 'text', label: 'Query Parameters', onChange: this.onQueryChange, value: this.state.query })
+        Panel.element(null,
+          Panel.element(null,
+            Grid.element({ fluid: true },
+              Row.element(null,
+                Col.element({ md: 3 },
+                  Input.element({ type: 'text', label: 'Page ID', onChange: this.onFbPageIdChange, value: this.state.pageId })
+                ),
+                Col.element({ md: 3 },
+                  FacebookAPIEdgeSelect.element({ label: 'Edge API', onChange: this.onFbApiEdgeChange, value: this.state.edgeApi })
+                ),
+                Col.element({ md: 6 }, // TODO: Convert this to something that has key and values separately
+                  Input.element({ type: 'text', label: 'Query Parameters', onChange: this.onQueryChange, value: this.state.query })
+                )
+              )
             )
           ),
-          Row.element(null,
-            Col.element({ md: 6 },
-              DOM.div({ className: 'form-inline' },
-                Input.element({ type: 'number', label: 'Sample Size', onChange: this.onSampleSizeChange, value: this.state.sampleSize }),
-                ButtonInput.element({  value: 'Fetch Sample', onClick: this.fetchSample })
+          Grid.element({ fluid: true },
+            Row.element(null,
+              Col.element({ md: 6 },
+                DOM.div({ className: 'form-inline' },
+                  Input.element({ type: 'number', label: 'Sample Size', onChange: this.onSampleSizeChange, value: this.state.sampleSize }),
+                  ButtonInput.element({  value: 'Fetch Sample', onClick: this.fetchSample })
+                ),
+                this.state.errorMessage
+                  ? Alert.element({ bsStyle: 'warning' }, this.state.errorMessage)
+                  : DOM.pre(null, this.state.sampleDataString)
               ),
-              this.state.errorMessage
-                ? Alert.element({ bsStyle: 'warning' }, this.state.errorMessage)
-                : DOM.pre(null, this.state.sampleDataString)
-            ),
-            Col.element({ md: 6 },
-              DOM.div({ className: 'form-inline' },
-                ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema', disabled: !this.canGenerateSchema() }),
-                ButtonInput.element({ onClick: this.submit, value: 'Submit Data', disabled: !this.canSubmit() })
-              ),
-              FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
+              Col.element({ md: 6 },
+                DOM.div({ className: 'form-inline' },
+                  ButtonInput.element({ onClick: this.generateSchema, value: 'Generate the Schema', disabled: !this.canGenerateSchema() }),
+                  ButtonInput.element({ onClick: this.submit, value: 'Submit Data', disabled: !this.canSubmit() })
+                ),
+                FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
+              )
             )
           )
         )
@@ -435,16 +439,6 @@
     React.render(React.createElement(clazz, props), document.getElementById('appRoot'));
   }
 
-  /*
-  // Check to see if client ID was passed in
-  var urlState = null;
-  try{
-    urlState = JSON.parse(decodeURIComponent(window.location.hash));
-  } catch(e) {
-    // Do nothing, this is best effort
-  }
-  */
-
   var context = TableauSchema.setup({
 
     fetchPassword: function(cb) {
@@ -454,40 +448,43 @@
       }
 
       $(function() {
-        //if(urlState) {
-          getAccessToken(function(accessToken) {
-            if(accessToken) {
-              onAccessToken(accessToken);
-            } else {
-              renderElement(FacebookLogin, { onAccessToken: onAccessToken });
-            }
-          });
-        //} else {
-        //  renderElement(FacebookLogin, { onAccessToken: onAccessToken });
-        //}
+        getAccessToken(function(accessToken) {
+          if(accessToken) {
+            onAccessToken(accessToken);
+          } else {
+            renderElement(FacebookLogin, { onAccessToken: onAccessToken });
+          }
+        });
       });
 
     },
 
-    fetchSetupData: function(authentication, cb) {
+    fetchSetupData: function(cb) {
 
       $(function() {
-        renderElement(FacebookWDCApp, { authentication: authentication, onSubmit: cb });
+        renderElement(FacebookWDCApp, { authentication: context.getAuthentication(), onSubmit: cb });
       });
 
     },
 
     fetchData: function(authentication, lastRecordToken, metaData, cb) {
 
+      tableau.log('GotHere to fetch data');
+
       if(!authentication.password) {
+        tableau.error('Missing password when fetching data')
         throw new Error('Missing password when fetching data')
       }
 
       var params = { access_token: authentication.password };
       if(_.isFinite(parseInt(metaData.maxObjectCount))) params.limit = metaData.maxObjectCount;
-      if(lastRecordToken) params.limit = lastRecordToken;
+      if(lastRecordToken) params.until = lastRecordToken;
 
       fetchFBData(metaData.fbApi, params, function(err, result) {
+        tableau.log('GotHere with data');
+        tableau.log('Error: '+ JSON.stringify(err))
+        tableau.log('Result: '+ JSON.stringify(result))
+
         if(err) {
           throw new Error(buildError(metaData.fbApi, err));
         }
@@ -495,11 +492,17 @@
         var lastRecordToken = result.since;
 
         cb(result.data, lastRecordToken, false);
+
+        tableau.log('GotHere after calling back');
       });
 
     }
   });
 
   context.setConnectionName('Facebook');
+
+  window.FBWDC = {
+    authenticate: authenticate
+  }
 
 })(window, jQuery, _, React, ReactBootstrap, TableauSchema, WDCSchema, WDCSchemaUI);

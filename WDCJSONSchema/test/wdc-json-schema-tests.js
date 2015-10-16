@@ -232,6 +232,51 @@
 
       expect(resultTable).to.deep.equal(expectedTable);
     });
+
+    describe('Edge Cases', function() {
+      it('should not show nested object if a non javascript object schema type is given for JSON that has a javascript object', function () {
+        var json = [
+          {strKey: {doNotShow: 'this'}},
+          {strKey: {doNotShow: 'this either'}}
+        ];
+        var schema = [{name: 'strKey', type: 'string'}];
+        var expectedTable = [
+          {'strKey': null},
+          {'strKey': null}
+        ];
+
+        var resultTable = WDCSchema.convertToTable(json, schema);
+
+        expect(resultTable).to.deep.equal(expectedTable);
+      });
+
+      it('should be able to show the length property on arrays', function () {
+        var json = [
+          {arrayKey: []},
+          {arrayKey: [1, 2]}
+        ];
+        var schema = [
+          {
+            name: 'arrayKey', type: 'object',
+            subFields: [
+              {name: 'length', type: 'int'}
+            ]
+          }
+        ];
+        var expectedTable = [
+          {'arrayKey.length': 0},
+          {'arrayKey.length': 2}
+        ];
+
+        var resultTable = WDCSchema.convertToTable(json, schema);
+
+        expect(resultTable).to.deep.equal(expectedTable);
+      });
+    });
+
+    it('should handle key names with periods and square brackets', function() {
+
+    });
   });
 
   describe('generateSchema()', function() {
@@ -358,48 +403,20 @@
     });
 
     describe('Edge Cases', function() {
-      it('should not show nested object if a non javascript object schema type is given for JSON that has a javascript object', function() {
+
+      it('should ignore nulls when estimating type', function() {
         var json = [
-          { strKey: { doNotShow: 'this' } },
-          { strKey: { doNotShow: 'this either' } }
-        ];
-        var schema = [ { name: 'strKey', type: 'string' } ];
-        var expectedTable = [
-          { 'strKey': null },
-          { 'strKey': null }
+          { strKey: 'a' },
+          { strKey: null },
+          { strKey: 'b' }
         ];
 
-        var resultTable = WDCSchema.convertToTable(json, schema);
+        var schema = WDCSchema.generateSchema(json, json.length);
 
-        expect(resultTable).to.deep.equal(expectedTable);
+        expect(schema).to.deep.equal([ { name: 'stringKey', type: 'string' } ]);
       });
 
-      it('should be able to show the length property on arrays', function() {
-        var json = [
-          { arrayKey: [] },
-          { arrayKey: [ 1, 2 ] }
-        ];
-        var schema = [
-          {
-            name: 'arrayKey', type: 'object',
-            subFields: [
-              {name: 'length', type: 'int'}
-            ]
-          }
-        ];
-        var expectedTable = [
-          { 'arrayKey.length': 0 },
-          { 'arrayKey.length': 2 }
-        ];
 
-        var resultTable = WDCSchema.convertToTable(json, schema);
-
-        expect(resultTable).to.deep.equal(expectedTable);
-      });
-
-      it('should handle key names with periods and square brackets', function() {
-
-      });
     });
     
     describe('mixed estimates', function() {
