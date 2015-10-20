@@ -1,0 +1,28 @@
+html, body, #fieldGroup {
+  height: 100%;
+}
+
+select.fieldType {
+  margin: 0 4px;
+}
+
+.panel {
+  margin-bottom: 0;
+}
+
+.fieldArrayType,
+.subFields {
+  padding: 10px 4px 0;
+}
+
+.full-height {
+  position: relative;
+  height: 100%;
+}
+
+.fill-height {
+  padding: 0 10px;
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+}
