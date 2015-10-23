@@ -167,14 +167,18 @@
           if(isNaN(Date.parse(val))) return FIELD_TYPE.string;
           return (val.indexOf(':') >= 0) ? FIELD_TYPE.datetime : FIELD_TYPE.date;
         case 'object':
+          if(val === null) return undefined;
           return Array.isArray(val) ? FIELD_TYPE.array : FIELD_TYPE.object;
         case 'boolean':
           return FIELD_TYPE.bool;
         case 'number':
           return (val.toString().indexOf('.') >= 0) ? FIELD_TYPE.float : FIELD_TYPE.int;
+        default:
+          return undefined;
       }
     },
     bestTypeEstimate: function(types) {
+      types = _.filter(types, _.isString); // Filter out invalid types
       var uniqTypes = _.uniq(types);
       switch(uniqTypes.length) {
         case 0: return; // If there no types then leave it empty for the user to fill in

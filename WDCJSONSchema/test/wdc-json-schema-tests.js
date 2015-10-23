@@ -401,9 +401,8 @@
         }
       ]);
     });
-
-    describe('Edge Cases', function() {
-
+    
+    describe('mixed estimates', function() {
       it('should ignore nulls when estimating type', function() {
         var json = [
           { strKey: 'a' },
@@ -413,13 +412,9 @@
 
         var schema = WDCSchema.generateSchema(json, json.length);
 
-        expect(schema).to.deep.equal([ { name: 'stringKey', type: 'string' } ]);
+        expect(schema).to.deep.equal([ { name: 'strKey', type: 'string' } ]);
       });
 
-
-    });
-    
-    describe('mixed estimates', function() {
       /*
       TODO:
       - int/float
