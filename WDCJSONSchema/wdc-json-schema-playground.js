@@ -13,6 +13,7 @@
   });
 
   var Input = ReactBootstrap.Input;
+  var ButtonGroup = ReactBootstrap.ButtonGroup;
   var Button = ReactBootstrap.Button;
   var Well = ReactBootstrap.Well;
   var Grid = ReactBootstrap.Grid;
@@ -167,6 +168,46 @@
   TablePreview.element = React.createFactory(TablePreview);
   TablePreview.MAX_ROWS = 100;
 
+  var CodePreview = React.createClass({
+    render: function() {
+      return DOM.pre({}, this.generateCodeString())
+    },
+
+    generateCodeString: function() {
+      return [
+        '<!DOCTYPE html>',
+        '<html>',
+        '  <head>',
+        '    <meta charset="UTF-8" />',
+        '    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>',
+        '    <script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.8.3/underscore-min.js"></script>',
+        '    <script src="https://public.tableau.com/javascripts/api/tableauwdc-1.1.0.js"></script>',
+        '    <script src="https://dbecks.github.io/WDCSchema/WDCJSONSchema/wdc-json-schema.js"></script>',
+        '    <script src="https://dbecks.github.io/WDCSchema/WDCJSONSchema/tableau-schema.js"></script>',
+        '    <!-- ADDITIONAL SCRIPTS... -->',
+        '  </head>',
+        '  <body>',
+        '    <script>',
+        '      TableauSchema',
+        '        .setup({',
+        '          fetchData: function(authentication, lastRecordToken, metadata, callback) {',
+        '            throw new Error("Implement the fetchData method by calling the callback method with a JSON array");',
+        '          },',
+        '        })',
+        '        .setConnectionName("MyConnection")',
+        '        .setSchema(' + this.generateSchemaString() + ');',
+        '    </script>',
+        '  </body>',
+        '</html>'
+      ].join('\n');
+    },
+    generateSchemaString: function() {
+      return JSON.stringify(this.props.schema, null, 2)
+          .replace(/\n/g, '\n        '); // Add spaces for the tabbing
+    }
+  });
+  CodePreview.element = React.createFactory(CodePreview);
+
   var FetchData = React.createClass({
     render: function() {
       var submitButton = Button.element({ onClick: this.fetchData }, 'Fetch Data');
@@ -218,15 +259,22 @@
       var updateSchema = _.debounce(this.updateSchema, SchemaPlaygroundApp.DEBOUNCE_TIME);
 
       return {
-        schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString,
+        schema: [], dataString: '[]', data: [], errorMessage: '', updateDataString: updateDataString, isPreviewMode: true,
         updateSchema: updateSchema, onTableChange: this.onTableChange, sampleSize: SchemaPlaygroundApp.DEFAULT_SAMPLE_SIZE
       };
     },
     render: function () {
       var textAreaStyle = { height: '300px', maxWidth: '100%', minWidth: '100%' };
-      var submitButton = null;
+      var stateButton = null;
       if(this.props.onSubmit) {
-        submitButton = Button.element({ onClick: this.submitData, disabled: this.submitDataDisabled() }, 'Submit Data');
+        stateButton = Button.element({ onClick: this.submitData, disabled: this.submitDataDisabled() }, 'Submit Data');
+      } else {
+        stateButton = (
+          ButtonGroup.element({},
+            Button.element({ onClick: this.showPreviewMode, active: this.state.isPreviewMode}, 'Table'),
+            Button.element({ onClick: this.showGeneratedCode, active: !this.state.isPreviewMode}, 'Code')
+          )
+        )
       }
 
       return (
@@ -247,10 +295,8 @@
             FieldGroup.element({ onFieldUpdate: this.onSchemaChange, value: this.state.schema })
           ),
           Col.element({ md: 4, className: 'fill-height' },
-            submitButton,
-            TablePreview.element(this.state)
-            //TableHeaderPreview.element(this.state),
-            //TableDataPreview.element(this.state)
+            stateButton,
+            this.state.isPreviewMode ? TablePreview.element(this.state) : CodePreview.element(this.state)
           )
         )
       );
@@ -299,6 +345,12 @@
     submitDataDisabled: function() {
       return !this.state.schema || (this.state.schema.length === 0)
           || !this.state.data || (this.state.data.length === 0)
+    },
+    showPreviewMode: function() {
+      this.setState({ isPreviewMode: true });
+    },
+    showGeneratedCode: function() {
+      this.setState({ isPreviewMode: false });
     }
   });
   SchemaPlaygroundApp.DEFAULT_SAMPLE_SIZE = 10;
