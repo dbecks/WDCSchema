@@ -236,7 +236,11 @@
     },
     bestSchemaEstimate: function(schemas) {
       var _this = this;
-      var fieldMap = _.groupBy(_.flatten(schemas), function(field) { return field.name; });
+      var fieldMap = _.chain(schemas)
+                      .flatten()
+                      .compact()
+                      .groupBy(function(field) { return field.name; })
+                      .value();
       return _.compact(mapObject(fieldMap, function(fields, name) {
         var fieldTypes = fields.map(function(field) { return field.type; });
         var estimatedType = SchemaGenerator.bestTypeEstimate(fieldTypes);

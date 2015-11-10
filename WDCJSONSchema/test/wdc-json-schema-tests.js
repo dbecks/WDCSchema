@@ -367,8 +367,6 @@
       ]);
     });
 
-
-
     it('should estimate for array type', function () {
       var json = [
         { arrayKey: [ 'a', 'b' ] },
@@ -400,6 +398,18 @@
           ]
         }
       ]);
+    });
+
+    it('should ignore nulls that are in objects', function () {
+      var json = [
+        { objectKey: { nullKey: null } },
+        { objectKey: { nullKey: null } },
+        {}
+      ];
+
+      var schema = WDCSchema.generateSchema(json, json.length);
+
+      expect(schema).to.deep.equal([ ]);
     });
     
     describe('mixed estimates', function() {
